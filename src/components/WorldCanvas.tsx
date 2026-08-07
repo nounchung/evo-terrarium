@@ -333,8 +333,10 @@ function drawSocialLab(graphic: Graphics, world: WorldState): void {
     graphic.circle(group.x, group.y, displayRadius).stroke({ color: colour, width: 1.7, alpha: 0.5 })
     graphic.circle(group.x, group.y, 4).fill({ color: colour, alpha: 0.9 })
   }
-  for (const migration of world.migrations) {
-    if (migration.completedDay !== null) continue
+  const visibleMigrations = world.migrations
+    .filter((migration) => migration.completedDay === null)
+    .slice(-8)
+  for (const migration of visibleMigrations) {
     graphic.moveTo(migration.from.x, migration.from.y).lineTo(migration.to.x, migration.to.y).stroke({ color: 0x8cd1c8, width: 3, alpha: 0.72 })
     graphic.circle(migration.to.x, migration.to.y, 11).stroke({ color: 0x8cd1c8, width: 2, alpha: 0.8 })
     graphic.circle(migration.to.x, migration.to.y, 3).fill({ color: 0x8cd1c8, alpha: 0.9 })
