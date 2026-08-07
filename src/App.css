@@ -167,7 +167,7 @@
 .creature-card footer strong { color: #e6e8d5; font-family: var(--mono); }
 .creature-card footer button { min-height: 34px; padding: 0 10px; color: #17251b; background: #dfe0a6; border: 0; border-radius: 9px; font-size: 9px; font-weight: 700; cursor: pointer; }
 
-.lineage-panel { position: absolute; z-index: 9; top: max(18px, env(safe-area-inset-top)); right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); width: min(460px, calc(100vw - 36px)); overflow: auto; padding: 22px; background: linear-gradient(145deg, rgba(18, 38, 27, .97), rgba(7, 24, 16, .96)); border-radius: 23px; box-shadow: -24px 0 65px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .05); animation: lineage-in .25s ease-out; }
+.lineage-panel { position: absolute; z-index: 9; top: max(18px, env(safe-area-inset-top)); right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); width: min(460px, calc(100vw - 36px)); overflow: auto; padding: 22px; background: linear-gradient(145deg, #12261b, #071810); border-radius: 23px; box-shadow: -24px 0 65px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .05); animation: lineage-in .25s ease-out; }
 @keyframes lineage-in { from { opacity: 0; transform: translateX(18px); } }
 .lineage-panel > header { display: flex; gap: 16px; justify-content: space-between; padding-bottom: 17px; border-bottom: 1px solid rgba(230, 235, 215, .12); }
 .lineage-panel > header small { color: #d7db98; font-family: var(--mono); font-size: 9px; letter-spacing: 1px; }
