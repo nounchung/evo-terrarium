@@ -162,6 +162,7 @@ function App() {
   const seasonNames = ['New Growth', 'High Sun', 'Amberfall', 'Long Rain']
   const season = world ? seasonNames[Math.floor(world.day / 7) % seasonNames.length] : 'New Growth'
   const population = (world?.stats.grazers ?? 0) + (world?.stats.hunters ?? 0)
+  const foodWebLabel = world?.stats.status ?? 'balanced'
 
   return (
     <main className={`terrarium ${tool !== 'inspect' ? 'is-creating' : ''}`}>
@@ -215,6 +216,8 @@ function App() {
         <div><small>YEAR {year}</small><strong>Day {day}</strong></div>
         <i/>
         <div><small>SEASON</small><strong>{season}</strong></div>
+        <i/>
+        <div className={`food-web ${foodWebLabel}`}><small>FOOD WEB</small><strong>{foodWebLabel}</strong></div>
         <span className="weather-orb" aria-hidden="true"/>
       </section>
 
@@ -234,8 +237,14 @@ function App() {
           <div className="creature-title"><small>{selected.kind.toUpperCase()} · #{selected.id}</small><h2>{selected.species}</h2><p>Generation {selected.generation} · {selected.behaviour}</p></div>
           <div className="vitals">
             <div><span>ENERGY</span><strong>{Math.round(selected.energy)}%</strong><i><b style={{ width: `${selected.energy}%` }}/></i></div>
+            <div className="hydration"><span>WATER</span><strong>{Math.round(selected.hydration)}%</strong><i><b style={{ width: `${selected.hydration}%` }}/></i></div>
             <div><span>HEALTH</span><strong>{Math.round(selected.health)}%</strong><i><b style={{ width: `${selected.health}%` }}/></i></div>
             <div><span>AGE</span><strong>{selected.age.toFixed(1)}d</strong><i><b style={{ width: `${Math.min(100, selected.age / selected.maxAge * 100)}%` }}/></i></div>
+          </div>
+          <div className="life-history" aria-label="Creature life history">
+            <span><strong>{selected.meals}</strong> meals</span>
+            <span><strong>{selected.drinks}</strong> drinks</span>
+            {selected.kind === 'hunter' && <span><strong>{selected.kills}</strong> hunts</span>}
           </div>
           <div className="gene-panel">
             <div className="section-heading"><span>INHERITED TRAITS</span><small>{selected.parents ? '2 parents' : 'Founding life'}</small></div>
@@ -282,4 +291,3 @@ function App() {
 }
 
 export default App
-

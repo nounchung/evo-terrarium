@@ -108,6 +108,10 @@
 .world-calendar small { color: rgba(225, 230, 208, .42); font-family: var(--mono); font-size: 7px; letter-spacing: 1px; }
 .world-calendar strong { font-size: 11px; font-weight: 600; white-space: nowrap; }
 .world-calendar > i { width: 1px; align-self: stretch; margin: 2px 0; background: rgba(230, 235, 212, .1); }
+.food-web strong { text-transform: capitalize; }
+.food-web.balanced strong { color: #cddd91; }
+.food-web.stressed strong { color: #dfbd76; }
+.food-web.fragile strong { color: #db8068; }
 .weather-orb { width: 29px; height: 29px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f6e6a3 0 10%, #d9b970 16%, #8a7b53 40%, rgba(90,107,80,.2) 62%); box-shadow: 0 0 17px rgba(229, 206, 120, .16); }
 
 .event-feed { position: absolute; z-index: 4; right: max(18px, env(safe-area-inset-right)); top: 90px; display: flex; flex-direction: column; gap: 8px; width: min(300px, calc(100vw - 36px)); }
@@ -132,12 +136,15 @@
 .creature-title small, .section-heading span { color: #c9ce92; font-family: var(--mono); font-size: 7px; letter-spacing: 1.15px; }
 .creature-title h2 { margin: 4px 0 2px; font-size: 18px; letter-spacing: -.5px; }
 .creature-title p { margin: 0; color: rgba(228, 232, 213, .48); font-size: 9px; text-transform: capitalize; }
-.vitals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 15px; padding-top: 14px; border-top: 1px solid rgba(232, 236, 216, .09); }
+.vitals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 15px; padding-top: 14px; border-top: 1px solid rgba(232, 236, 216, .09); }
 .vitals > div { display: grid; grid-template-columns: 1fr auto; gap: 4px; }
 .vitals span { color: rgba(229, 233, 213, .4); font-family: var(--mono); font-size: 6px; letter-spacing: .7px; }
 .vitals strong { font-family: var(--mono); font-size: 8px; font-weight: 500; }
 .vitals i { grid-column: 1 / -1; height: 3px; overflow: hidden; background: rgba(255,255,255,.08); border-radius: 3px; }
 .vitals b { display: block; height: 100%; background: #b8ca7b; border-radius: inherit; }
+.vitals .hydration b { background: #7fc2c1; }
+.life-history { display: flex; gap: 13px; margin-top: 10px; color: rgba(228, 232, 213, .4); font-size: 7px; }
+.life-history strong { color: #e4e8d0; font-family: var(--mono); font-weight: 500; }
 .gene-panel { margin-top: 16px; padding: 13px; background: rgba(2, 13, 7, .25); border: 1px solid rgba(232, 236, 216, .08); border-radius: 13px; }
 .section-heading { display: flex; justify-content: space-between; margin-bottom: 10px; }
 .section-heading small { color: rgba(228, 232, 213, .35); font-size: 7px; }
@@ -239,4 +246,3 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
-

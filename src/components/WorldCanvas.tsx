@@ -162,6 +162,28 @@ function drawCreatures(
     }
     if (creature.kind === 'grazer') drawGrazer(graphic, creature)
     else drawHunter(graphic, creature)
+    if (creature.behaviour === 'drink') {
+      const markerY = creature.y - 13 * creature.genes.size
+      graphic
+        .moveTo(creature.x, markerY - 3.5)
+        .bezierCurveTo(
+          creature.x - 4,
+          markerY + 1,
+          creature.x - 2.5,
+          markerY + 4.5,
+          creature.x,
+          markerY + 4.5,
+        )
+        .bezierCurveTo(
+          creature.x + 2.5,
+          markerY + 4.5,
+          creature.x + 4,
+          markerY + 1,
+          creature.x,
+          markerY - 3.5,
+        )
+        .fill({ color: 0x91d4d0, alpha: 0.9 })
+    }
   }
 }
 

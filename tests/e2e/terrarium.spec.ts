@@ -6,6 +6,7 @@ test('loads a living world and exposes simulation controls', async ({ page }) =>
   await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add grazer' })).toBeVisible()
+  await expect(page.getByText('FOOD WEB')).toBeVisible()
 })
 
 test('creates a deterministic world from a chosen seed', async ({ page }) => {
@@ -15,4 +16,3 @@ test('creates a deterministic world from a chosen seed', async ({ page }) => {
   await page.getByRole('button', { name: 'Grow this world' }).click()
   await expect(page.getByText('A living world awakens')).toBeVisible()
 })
-

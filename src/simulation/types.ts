@@ -4,8 +4,10 @@ export const CELL_SIZE = 40
 
 export type Biome = 'deep-water' | 'water' | 'meadow' | 'grass' | 'forest'
 export type CreatureKind = 'grazer' | 'hunter'
-export type Behaviour = 'wander' | 'forage' | 'flee' | 'hunt' | 'mate' | 'rest'
+export type Behaviour = 'wander' | 'forage' | 'drink' | 'flee' | 'hunt' | 'mate' | 'rest'
 export type SimSpeed = 0 | 1 | 5 | 20 | 100
+export type DeathCause = 'predation' | 'starvation' | 'dehydration' | 'age'
+export type EcosystemStatus = 'balanced' | 'stressed' | 'fragile'
 
 export interface Point {
   x: number
@@ -27,6 +29,7 @@ export interface Creature extends Point {
   species: string
   angle: number
   energy: number
+  hydration: number
   health: number
   age: number
   maxAge: number
@@ -39,6 +42,12 @@ export interface Creature extends Point {
   targetY: number
   decisionTimer: number
   reproductionCooldown: number
+  attackCooldown: number
+  meals: number
+  drinks: number
+  kills: number
+  lastAttackerId: number | null
+  lastAttackTick: number
 }
 
 export interface Plant extends Point {
@@ -57,14 +66,30 @@ export interface WorldEvent {
   detail: string
 }
 
+export interface DeathRecord {
+  creatureId: number
+  species: string
+  kind: CreatureKind
+  generation: number
+  day: number
+  cause: DeathCause
+  killerId: number | null
+}
+
+export type DeathCounts = Record<DeathCause, number>
+
 export interface WorldStats {
   grazers: number
   hunters: number
   plants: number
   births: number
   deaths: number
+  kills: number
+  deathsByCause: DeathCounts
   maxGeneration: number
   averageEnergy: number
+  averageHydration: number
+  status: EcosystemStatus
 }
 
 export interface WorldState {
@@ -80,6 +105,7 @@ export interface WorldState {
   creatures: Creature[]
   plants: Plant[]
   events: WorldEvent[]
+  deathRecords: DeathRecord[]
   day: number
   tick: number
   rngState: number
@@ -112,4 +138,3 @@ export type WorkerCommand =
 export type WorkerMessage =
   | { type: 'ready'; world: WorldState }
   | { type: 'snapshot'; world: WorldState; speed: SimSpeed }
-

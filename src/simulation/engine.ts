@@ -7,6 +7,9 @@ import {
   type Biome,
   type Creature,
   type CreatureKind,
+  type DeathCause,
+  type DeathCounts,
+  type EcosystemStatus,
   type Genes,
   type Plant,
   type Point,
@@ -17,6 +20,14 @@ import {
 const TAU = Math.PI * 2
 const MAX_CREATURES = 240
 const MAX_PLANTS = 260
+const SPATIAL_CELL_SIZE = 120
+
+const emptyDeathCounts = (): DeathCounts => ({
+  predation: 0,
+  starvation: 0,
+  dehydration: 0,
+  age: 0,
+})
 
 const distanceSquared = (a: Point, b: Point) => {
   const dx = a.x - b.x
@@ -75,16 +86,47 @@ function nearest<T extends Point>(origin: Point, candidates: T[], radius: number
   return best
 }
 
+function normaliseRestoredState(restored: WorldState): WorldState {
+  const cloned = structuredClone(restored)
+  const creatures = cloned.creatures.map((creature) => ({
+    ...creature,
+    hydration: creature.hydration ?? 76,
+    attackCooldown: creature.attackCooldown ?? 0,
+    meals: creature.meals ?? 0,
+    drinks: creature.drinks ?? 0,
+    kills: creature.kills ?? 0,
+    lastAttackerId: creature.lastAttackerId ?? null,
+    lastAttackTick: creature.lastAttackTick ?? -1,
+  }))
+  const averageHydration = creatures.length
+    ? creatures.reduce((total, creature) => total + creature.hydration, 0) / creatures.length
+    : 0
+  return {
+    ...cloned,
+    creatures,
+    deathRecords: cloned.deathRecords ?? [],
+    stats: {
+      ...cloned.stats,
+      kills: cloned.stats.kills ?? 0,
+      deathsByCause: cloned.stats.deathsByCause ?? emptyDeathCounts(),
+      averageHydration: cloned.stats.averageHydration ?? averageHydration,
+      status: cloned.stats.status ?? 'balanced',
+    },
+  }
+}
+
 export class SimulationEngine {
   public state: WorldState
   private random: SeededRandom
   private wildGrowthTimer = 0
   private lastGrazerCount = 0
   private lastHunterCount = 0
+  private waterSources: Point[] = []
+  private waterSourcesRevision = -1
 
   constructor(seed: string, restored?: WorldState) {
     if (restored?.version === 1) {
-      this.state = structuredClone(restored)
+      this.state = normaliseRestoredState(restored)
       this.random = new SeededRandom(restored.rngState)
     } else {
       const generated = generateTerrain(seed)
@@ -100,6 +142,7 @@ export class SimulationEngine {
         creatures: [],
         plants: [],
         events: [],
+        deathRecords: [],
         day: 1,
         tick: 0,
         rngState: this.random.state,
@@ -110,8 +153,12 @@ export class SimulationEngine {
           plants: 0,
           births: 0,
           deaths: 0,
+          kills: 0,
+          deathsByCause: emptyDeathCounts(),
           maxGeneration: 1,
           averageEnergy: 0,
+          averageHydration: 0,
+          status: 'balanced',
         },
       }
       for (let index = 0; index < 150; index += 1) this.spawnPlant()
@@ -120,6 +167,7 @@ export class SimulationEngine {
       this.addEvent('milestone', 'A living world awakens', `Seed ${seed} has begun its first day.`)
       this.updateStats()
     }
+    this.refreshWaterSources()
     this.lastGrazerCount = this.state.stats.grazers
     this.lastHunterCount = this.state.stats.hunters
   }
@@ -128,6 +176,44 @@ export class SimulationEngine {
     const id = this.state.nextEntityId
     this.state.nextEntityId += 1
     return id
+  }
+
+  private refreshWaterSources(): void {
+    if (this.waterSourcesRevision === this.state.terrainRevision) return
+    const sources: Point[] = []
+    const neighbours = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ]
+    for (let row = 0; row < this.state.rows; row += 1) {
+      for (let column = 0; column < this.state.columns; column += 1) {
+        const biome = this.state.terrain[row * this.state.columns + column]
+        if (!isLand(biome)) continue
+        const touchesWater = neighbours.some(([offsetX, offsetY]) => {
+          const nextColumn = column + offsetX
+          const nextRow = row + offsetY
+          if (
+            nextColumn < 0 ||
+            nextColumn >= this.state.columns ||
+            nextRow < 0 ||
+            nextRow >= this.state.rows
+          ) {
+            return false
+          }
+          return !isLand(this.state.terrain[nextRow * this.state.columns + nextColumn])
+        })
+        if (touchesWater) {
+          sources.push({
+            x: (column + 0.5) * this.state.cellSize,
+            y: (row + 0.5) * this.state.cellSize,
+          })
+        }
+      }
+    }
+    this.waterSources = sources
+    this.waterSourcesRevision = this.state.terrainRevision
   }
 
   private landPoint(preferred?: Point): Point | null {
@@ -231,9 +317,10 @@ export class SimulationEngine {
       ...location,
       angle: this.random.range(0, TAU),
       energy: this.random.range(62, 92),
+      hydration: this.random.range(68, 96),
       health: 100,
       age: generation === 1 ? this.random.range(1, 9) : 0,
-      maxAge: kind === 'grazer' ? this.random.range(34, 48) : this.random.range(38, 54),
+      maxAge: kind === 'grazer' ? this.random.range(34, 48) : this.random.range(44, 62),
       generation,
       genes: genes ?? this.baseGenes(kind),
       parents,
@@ -243,6 +330,12 @@ export class SimulationEngine {
       targetY: location.y,
       decisionTimer: this.random.range(0, 0.8),
       reproductionCooldown: generation === 1 ? this.random.range(0, 8) : 9,
+      attackCooldown: 0,
+      meals: 0,
+      drinks: 0,
+      kills: 0,
+      lastAttackerId: null,
+      lastAttackTick: -1,
     }
     this.state.creatures.push(creature)
     return creature
@@ -280,29 +373,69 @@ export class SimulationEngine {
     }
   }
 
-  private reproduce(a: Creature, b: Creature): void {
-    if (this.state.creatures.length >= MAX_CREATURES) return
-    const generation = Math.max(a.generation, b.generation) + 1
-    const child = this.spawnCreature(
-      a.kind,
-      { x: (a.x + b.x) / 2 + this.random.range(-7, 7), y: (a.y + b.y) / 2 + this.random.range(-7, 7) },
-      this.inherit(a, b),
-      generation,
-      [a.id, b.id],
+  private populationCapacity(kind: CreatureKind): number {
+    const maturePlants = this.state.plants.reduce(
+      (total, plant) => total + (plant.energy > 18 ? 1 : 0),
+      0,
     )
-    if (!child) return
-    a.children.push(child.id)
-    b.children.push(child.id)
-    a.energy -= 22
-    b.energy -= 18
-    a.reproductionCooldown = 12 / a.genes.fertility
-    b.reproductionCooldown = 12 / b.genes.fertility
-    this.state.stats.births += 1
+    const grazers = this.state.creatures.reduce(
+      (total, creature) => total + (creature.kind === 'grazer' ? 1 : 0),
+      0,
+    )
+    if (kind === 'grazer') return clamp(Math.floor(maturePlants * 0.72), 16, 180)
+    return clamp(Math.floor(grazers / 4.5), 6, 36)
+  }
+
+  private canReproduce(kind: CreatureKind): boolean {
+    const population = this.state.creatures.reduce(
+      (total, creature) => total + (creature.kind === kind ? 1 : 0),
+      0,
+    )
+    return population < this.populationCapacity(kind)
+  }
+
+  private reproduce(a: Creature, b: Creature): void {
+    if (this.state.creatures.length >= MAX_CREATURES || !this.canReproduce(a.kind)) return
+    const generation = Math.max(a.generation, b.generation) + 1
+    const currentPopulation = this.state.creatures.reduce(
+      (total, creature) => total + (creature.kind === a.kind ? 1 : 0),
+      0,
+    )
+    const available = Math.max(0, this.populationCapacity(a.kind) - currentPopulation)
+    const litterSize = a.kind === 'hunter' && currentPopulation <= 4 ? 2 : 1
+    const children: Creature[] = []
+    for (let index = 0; index < Math.min(litterSize, available); index += 1) {
+      const child = this.spawnCreature(
+        a.kind,
+        {
+          x: (a.x + b.x) / 2 + this.random.range(-7, 7),
+          y: (a.y + b.y) / 2 + this.random.range(-7, 7),
+        },
+        this.inherit(a, b),
+        generation,
+        [a.id, b.id],
+      )
+      if (child) children.push(child)
+    }
+    if (children.length === 0) return
+    for (const child of children) {
+      a.children.push(child.id)
+      b.children.push(child.id)
+    }
+    a.energy -= 22 + (children.length - 1) * 5
+    b.energy -= 18 + (children.length - 1) * 4
+    a.hydration -= 7 + (children.length - 1) * 2
+    b.hydration -= 6 + (children.length - 1) * 2
+    const cooldown = a.kind === 'hunter' ? 9 : 12
+    a.reproductionCooldown = cooldown / a.genes.fertility
+    b.reproductionCooldown = cooldown / b.genes.fertility
+    this.state.stats.births += children.length
     if (generation > this.state.stats.maxGeneration) {
+      this.state.stats.maxGeneration = generation
       this.addEvent(
         'birth',
         `Generation ${generation} has arrived`,
-        `${child.species} #${child.id} carries a new combination of inherited traits.`,
+        `${children[0].species} #${children[0].id} carries a new combination of inherited traits.`,
       )
     }
   }
@@ -326,10 +459,33 @@ export class SimulationEngine {
     creature.behaviour = this.random.chance(0.12) ? 'rest' : 'wander'
   }
 
+  private seekWater(
+    creature: Creature,
+    waterBuckets: Map<string, Point[]>,
+  ): boolean {
+    const searchRadius = creature.genes.vision * 2.6
+    const source = nearest(
+      creature,
+      nearby(waterBuckets, creature, searchRadius, SPATIAL_CELL_SIZE),
+      searchRadius,
+    )
+    if (!source) return false
+    creature.targetX = source.x
+    creature.targetY = source.y
+    creature.behaviour = 'drink'
+    if (distanceSquared(creature, source) < 17 * 17) {
+      creature.hydration = clamp(creature.hydration + 46, 0, 100)
+      creature.energy = clamp(creature.energy - 0.4, 0, 100)
+      creature.drinks += 1
+    }
+    return true
+  }
+
   private decideGrazer(
     creature: Creature,
     creatureBuckets: Map<string, Creature[]>,
     plantBuckets: Map<string, Plant[]>,
+    waterBuckets: Map<string, Point[]>,
   ): void {
     const inSight = nearby(creatureBuckets, creature, creature.genes.vision, 120)
     const threat = nearest(
@@ -347,13 +503,41 @@ export class SimulationEngine {
       return
     }
 
-    if (creature.energy > 73 && creature.age > 3 && creature.reproductionCooldown <= 0) {
+    if (creature.hydration < 48 && this.seekWater(creature, waterBuckets)) return
+
+    const plants = nearby(plantBuckets, creature, creature.genes.vision, SPATIAL_CELL_SIZE).filter(
+      (plant) => plant.energy > 12,
+    )
+    const food = nearest(creature, plants, creature.genes.vision)
+    if (food && creature.energy < 72) {
+      creature.targetX = food.x
+      creature.targetY = food.y
+      creature.behaviour = 'forage'
+      if (distanceSquared(creature, food) < 14 * 14) {
+        const meal = Math.min(food.energy, 18)
+        food.energy -= meal
+        creature.energy = clamp(creature.energy + meal * 0.72, 0, 100)
+        creature.meals += 1
+      }
+      return
+    }
+
+    if (creature.hydration < 66 && this.seekWater(creature, waterBuckets)) return
+
+    if (
+      creature.energy > 75 &&
+      creature.hydration > 64 &&
+      creature.age > 3 &&
+      creature.reproductionCooldown <= 0 &&
+      this.canReproduce(creature.kind)
+    ) {
       const mate = nearest(
         creature,
         inSight.filter(
           (other) =>
             other.kind === creature.kind &&
             other.energy > 70 &&
+            other.hydration > 60 &&
             other.age > 3 &&
             other.reproductionCooldown <= 0,
         ),
@@ -370,18 +554,15 @@ export class SimulationEngine {
       }
     }
 
-    const plants = nearby(plantBuckets, creature, creature.genes.vision, 120).filter(
-      (plant) => plant.energy > 12,
-    )
-    const food = nearest(creature, plants, creature.genes.vision)
-    if (food && creature.energy < 88) {
+    if (food && creature.energy < 90) {
       creature.targetX = food.x
       creature.targetY = food.y
       creature.behaviour = 'forage'
       if (distanceSquared(creature, food) < 14 * 14) {
-        const meal = Math.min(food.energy, 20)
+        const meal = Math.min(food.energy, 14)
         food.energy -= meal
         creature.energy = clamp(creature.energy + meal * 0.72, 0, 100)
+        creature.meals += 1
       }
       return
     }
@@ -391,19 +572,54 @@ export class SimulationEngine {
   private decideHunter(
     creature: Creature,
     creatureBuckets: Map<string, Creature[]>,
+    waterBuckets: Map<string, Point[]>,
   ): void {
-    const inSight = nearby(creatureBuckets, creature, creature.genes.vision, 120)
-    if (creature.energy > 78 && creature.age > 4 && creature.reproductionCooldown <= 0) {
+    const inSight = nearby(
+      creatureBuckets,
+      creature,
+      creature.genes.vision,
+      SPATIAL_CELL_SIZE,
+    )
+    if (creature.hydration < 50 && this.seekWater(creature, waterBuckets)) return
+
+    const hunterPopulation = this.state.creatures.reduce(
+      (total, other) => total + (other.kind === 'hunter' ? 1 : 0),
+      0,
+    )
+    const mateUrgency = hunterPopulation <= 4 && this.canReproduce('hunter')
+
+    const prey = nearest(
+      creature,
+      inSight.filter((other) => other.kind === 'grazer' && other.health > 0),
+      creature.genes.vision,
+    )
+    if (prey && creature.energy < 64) {
+      this.hunt(creature, prey)
+      return
+    }
+
+    if (creature.hydration < 68 && this.seekWater(creature, waterBuckets)) return
+
+    if (
+      creature.energy > (mateUrgency ? 64 : 80) &&
+      creature.hydration > (mateUrgency ? 52 : 65) &&
+      creature.age > (mateUrgency ? 2.5 : 4) &&
+      creature.reproductionCooldown <= 0 &&
+      this.canReproduce(creature.kind)
+    ) {
+      // Sparse predators use a long-range mating call so viable partners can converge.
+      const mateSearchRadius = Math.hypot(this.state.width, this.state.height)
       const mate = nearest(
         creature,
-        inSight.filter(
+        this.state.creatures.filter(
           (other) =>
             other.kind === 'hunter' &&
-            other.energy > 76 &&
-            other.age > 4 &&
+            other.energy > (mateUrgency ? 60 : 76) &&
+            other.hydration > (mateUrgency ? 48 : 62) &&
+            other.age > (mateUrgency ? 2.5 : 4) &&
             other.reproductionCooldown <= 0,
         ),
-        creature.genes.vision * 0.55,
+        mateSearchRadius,
       )
       if (mate) {
         creature.targetX = mate.x
@@ -415,22 +631,28 @@ export class SimulationEngine {
         return
       }
     }
-    const prey = nearest(
-      creature,
-      inSight.filter((other) => other.kind === 'grazer' && other.health > 0),
-      creature.genes.vision,
-    )
-    if (prey) {
-      creature.targetX = prey.x
-      creature.targetY = prey.y
-      creature.behaviour = 'hunt'
-      if (distanceSquared(creature, prey) < 15 * 15) {
-        prey.health -= 28
-        if (prey.health <= 0) creature.energy = clamp(creature.energy + 48, 0, 100)
-      }
+
+    if (prey && creature.energy < 91) {
+      this.hunt(creature, prey)
       return
     }
     this.randomTarget(creature)
+  }
+
+  private hunt(creature: Creature, prey: Creature): void {
+    creature.targetX = prey.x
+    creature.targetY = prey.y
+    creature.behaviour = 'hunt'
+    if (distanceSquared(creature, prey) >= 15 * 15 || creature.attackCooldown > 0) return
+    prey.health -= 13 + creature.genes.size * 7
+    prey.lastAttackerId = creature.id
+    prey.lastAttackTick = this.state.tick
+    creature.attackCooldown = 0.82
+    if (prey.health > 0) return
+    creature.energy = clamp(creature.energy + 40 + prey.genes.size * 9, 0, 100)
+    creature.meals += 1
+    creature.kills += 1
+    this.state.stats.kills += 1
   }
 
   private move(creature: Creature, delta: number): void {
@@ -443,7 +665,14 @@ export class SimulationEngine {
     let angleDifference = targetAngle - creature.angle
     angleDifference = Math.atan2(Math.sin(angleDifference), Math.cos(angleDifference))
     creature.angle += angleDifference * Math.min(1, delta * 6)
-    const urgency = creature.behaviour === 'flee' ? 1.38 : creature.behaviour === 'hunt' ? 1.16 : 0.8
+    const urgency =
+      creature.behaviour === 'flee'
+        ? 1.38
+        : creature.behaviour === 'hunt'
+          ? 1.16
+          : creature.behaviour === 'drink'
+            ? 0.96
+            : 0.8
     const speed = creature.genes.speed * urgency
     const nextX = clamp(creature.x + Math.cos(creature.angle) * speed * delta, 7, this.state.width - 7)
     const nextY = clamp(creature.y + Math.sin(creature.angle) * speed * delta, 7, this.state.height - 7)
@@ -463,48 +692,126 @@ export class SimulationEngine {
     }
   }
 
+  private deathCause(creature: Creature): DeathCause | null {
+    if (
+      creature.health <= 0 &&
+      creature.lastAttackerId !== null &&
+      this.state.tick - creature.lastAttackTick < 160
+    ) {
+      return 'predation'
+    }
+    if (creature.energy <= 0 || (creature.health <= 0 && creature.energy < 18)) {
+      return 'starvation'
+    }
+    if (creature.hydration <= 0 || (creature.health <= 0 && creature.hydration < 16)) {
+      return 'dehydration'
+    }
+    if (creature.age >= creature.maxAge) return 'age'
+    return creature.health <= 0 ? 'starvation' : null
+  }
+
+  private recordDeath(creature: Creature, cause: DeathCause): void {
+    const previousCount = this.state.stats.deathsByCause[cause]
+    this.state.stats.deaths += 1
+    this.state.stats.deathsByCause[cause] += 1
+    this.state.deathRecords.unshift({
+      creatureId: creature.id,
+      species: creature.species,
+      kind: creature.kind,
+      generation: creature.generation,
+      day: this.state.day,
+      cause,
+      killerId: cause === 'predation' ? creature.lastAttackerId : null,
+    })
+    this.state.deathRecords = this.state.deathRecords.slice(0, 80)
+
+    if (previousCount > 0) return
+    const descriptions: Record<DeathCause, [string, string]> = {
+      predation: [
+        'The first successful hunt',
+        `${creature.species} #${creature.id} became part of the food chain.`,
+      ],
+      starvation: [
+        'Scarcity claims its first life',
+        `${creature.species} #${creature.id} could not find enough food.`,
+      ],
+      dehydration: [
+        'Water shapes survival',
+        `${creature.species} #${creature.id} died before reaching a shoreline.`,
+      ],
+      age: [
+        'A natural lifetime ends',
+        `${creature.species} #${creature.id} reached age ${creature.age.toFixed(1)}.`,
+      ],
+    }
+    this.addEvent('death', ...descriptions[cause])
+  }
+
   step(delta: number): void {
     this.state.tick += 1
     this.state.day += delta * 0.12
     this.wildGrowthTimer += delta
 
+    const plantBuckets = buildBuckets(this.state.plants, SPATIAL_CELL_SIZE)
     for (const plant of this.state.plants) {
-      plant.energy = Math.min(plant.maxEnergy, plant.energy + plant.growthRate * delta)
+      const competitors = nearby(
+        plantBuckets,
+        plant,
+        62,
+        SPATIAL_CELL_SIZE,
+      ).length
+      const competitionFactor = Math.max(0.28, 1 - Math.max(0, competitors - 2) * 0.09)
+      plant.energy = Math.min(
+        plant.maxEnergy,
+        plant.energy + plant.growthRate * competitionFactor * delta,
+      )
     }
     if (this.wildGrowthTimer > 1.5 && this.state.plants.length < MAX_PLANTS) {
       this.wildGrowthTimer = 0
       this.spawnPlant()
     }
 
-    const creatureBuckets = buildBuckets(this.state.creatures, 120)
-    const plantBuckets = buildBuckets(this.state.plants, 120)
+    this.refreshWaterSources()
+    const creatureBuckets = buildBuckets(this.state.creatures, SPATIAL_CELL_SIZE)
+    const currentPlantBuckets = buildBuckets(this.state.plants, SPATIAL_CELL_SIZE)
+    const waterBuckets = buildBuckets(this.waterSources, SPATIAL_CELL_SIZE)
 
     for (const creature of this.state.creatures) {
       creature.age += delta * 0.1
       creature.reproductionCooldown = Math.max(0, creature.reproductionCooldown - delta)
+      creature.attackCooldown = Math.max(0, creature.attackCooldown - delta)
       const movementCost = creature.behaviour === 'rest' ? 0.22 : 0.52
       creature.energy -=
         creature.genes.metabolism * delta * movementCost * (0.7 + creature.genes.size * 0.3)
-      if (creature.energy < 18) creature.health -= delta * 3.2
-      else creature.health = Math.min(100, creature.health + delta * 0.3)
+      const hydrationCost =
+        creature.behaviour === 'rest' ? 0.18 : creature.behaviour === 'flee' ? 0.48 : 0.3
+      creature.hydration -=
+        creature.genes.metabolism * delta * hydrationCost * (0.76 + creature.genes.size * 0.24)
+      if (creature.energy < 18) creature.health -= delta * 3.1
+      if (creature.hydration < 16) creature.health -= delta * 3.6
+      if (creature.energy >= 28 && creature.hydration >= 28) {
+        creature.health = Math.min(100, creature.health + delta * 0.28)
+      }
 
       creature.decisionTimer -= delta
       if (creature.decisionTimer <= 0) {
         creature.decisionTimer = this.random.range(0.16, 0.45)
         if (creature.kind === 'grazer') {
-          this.decideGrazer(creature, creatureBuckets, plantBuckets)
+          this.decideGrazer(creature, creatureBuckets, currentPlantBuckets, waterBuckets)
         } else {
-          this.decideHunter(creature, creatureBuckets)
+          this.decideHunter(creature, creatureBuckets, waterBuckets)
         }
       }
       this.move(creature, delta)
     }
 
-    const before = this.state.creatures.length
-    this.state.creatures = this.state.creatures.filter(
-      (creature) => creature.health > 0 && creature.energy > 0 && creature.age < creature.maxAge,
-    )
-    this.state.stats.deaths += before - this.state.creatures.length
+    const survivors: Creature[] = []
+    for (const creature of this.state.creatures) {
+      const cause = this.deathCause(creature)
+      if (cause) this.recordDeath(creature, cause)
+      else survivors.push(creature)
+    }
+    this.state.creatures = survivors
     this.random.state >>>= 0
     this.state.rngState = this.random.state
     this.updateStats()
@@ -524,19 +831,48 @@ export class SimulationEngine {
     let hunters = 0
     let generation = 1
     let totalEnergy = 0
+    let totalHydration = 0
     for (const creature of this.state.creatures) {
       if (creature.kind === 'grazer') grazers += 1
       else hunters += 1
       generation = Math.max(generation, creature.generation)
       totalEnergy += creature.energy
+      totalHydration += creature.hydration
+    }
+    const plants = this.state.plants.filter((plant) => plant.energy > 12).length
+    const averageEnergy = this.state.creatures.length
+      ? totalEnergy / this.state.creatures.length
+      : 0
+    const averageHydration = this.state.creatures.length
+      ? totalHydration / this.state.creatures.length
+      : 0
+    let status: EcosystemStatus = 'balanced'
+    if (
+      grazers === 0 ||
+      plants < 16 ||
+      averageEnergy < 28 ||
+      averageHydration < 28 ||
+      hunters > Math.max(4, grazers * 0.38)
+    ) {
+      status = 'fragile'
+    } else if (
+      hunters === 0 ||
+      plants < 55 ||
+      averageEnergy < 50 ||
+      averageHydration < 48 ||
+      hunters > Math.max(3, grazers * 0.25)
+    ) {
+      status = 'stressed'
     }
     this.state.stats = {
       ...this.state.stats,
       grazers,
       hunters,
-      plants: this.state.plants.filter((plant) => plant.energy > 12).length,
+      plants,
       maxGeneration: generation,
-      averageEnergy: this.state.creatures.length ? totalEnergy / this.state.creatures.length : 0,
+      averageEnergy,
+      averageHydration,
+      status,
     }
   }
 
@@ -545,6 +881,7 @@ export class SimulationEngine {
       for (let index = 0; index < 5; index += 1) {
         this.spawnPlant({ x: x + this.random.range(-radius, radius), y: y + this.random.range(-radius, radius) })
       }
+      this.updateStats()
       return
     }
     if (action === 'grazer' || action === 'hunter') {
@@ -569,10 +906,40 @@ export class SimulationEngine {
       }
     }
     this.state.terrainRevision += 1
+    this.waterSourcesRevision = -1
+    this.refreshWaterSources()
+    this.state.plants = this.state.plants.filter((plant) =>
+      isLand(
+        biomeAt(
+          this.state.terrain,
+          this.state.columns,
+          this.state.rows,
+          plant.x,
+          plant.y,
+        ),
+      ),
+    )
+    for (const creature of this.state.creatures) {
+      const standingBiome = biomeAt(
+        this.state.terrain,
+        this.state.columns,
+        this.state.rows,
+        creature.x,
+        creature.y,
+      )
+      if (isLand(standingBiome)) continue
+      const replacement = this.landPoint()
+      if (!replacement) continue
+      creature.x = replacement.x
+      creature.y = replacement.y
+      creature.targetX = replacement.x
+      creature.targetY = replacement.y
+      creature.behaviour = 'wander'
+    }
+    this.updateStats()
   }
 
   snapshot(): WorldState {
     return structuredClone(this.state)
   }
 }
-
