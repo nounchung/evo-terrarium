@@ -6,6 +6,7 @@ interface WorldCanvasProps {
   world: WorldState | null
   selectedId: number | null
   tool: CreationTool
+  labMode: boolean
   onSelect: (id: number | null) => void
   onWorldAction: (action: Exclude<CreationTool, 'inspect'>, x: number, y: number) => void
   onOneShotComplete: () => void
@@ -18,6 +19,7 @@ interface CanvasRuntime {
   plants: Graphics
   creatures: Graphics
   atmosphere: Graphics
+  social: Graphics
   brush: Graphics
   terrainRevision: number
 }
@@ -316,6 +318,31 @@ function drawAtmosphere(graphic: Graphics, world: WorldState): void {
   }
 }
 
+function drawSocialLab(graphic: Graphics, world: WorldState): void {
+  graphic.clear()
+  for (const territory of world.territories) {
+    graphic.circle(territory.x, territory.y, territory.radius).stroke({ color: 0xe59b76, width: 2, alpha: 0.28 + territory.pressure * 0.34 })
+  }
+  const migratingIds = new Set(world.migrations.filter((record) => record.completedDay === null).map((record) => record.groupId))
+  const visibleGroups = [...world.groups]
+    .sort((first, second) => Number(migratingIds.has(second.id)) - Number(migratingIds.has(first.id)) || second.memberIds.length - first.memberIds.length)
+    .slice(0, 8)
+  for (const group of visibleGroups) {
+    const colour = group.kind === 'grazer' ? 0xd8e29a : 0xe98d70
+    const displayRadius = Math.max(18, Math.min(72, group.radius * 0.48))
+    graphic.circle(group.x, group.y, displayRadius).stroke({ color: colour, width: 1.7, alpha: 0.5 })
+    graphic.circle(group.x, group.y, 4).fill({ color: colour, alpha: 0.9 })
+  }
+  const visibleMigrations = world.migrations
+    .filter((migration) => migration.completedDay === null)
+    .slice(-8)
+  for (const migration of visibleMigrations) {
+    graphic.moveTo(migration.from.x, migration.from.y).lineTo(migration.to.x, migration.to.y).stroke({ color: 0x8cd1c8, width: 3, alpha: 0.72 })
+    graphic.circle(migration.to.x, migration.to.y, 11).stroke({ color: 0x8cd1c8, width: 2, alpha: 0.8 })
+    graphic.circle(migration.to.x, migration.to.y, 3).fill({ color: 0x8cd1c8, alpha: 0.9 })
+  }
+}
+
 function fitCamera(runtime: CanvasRuntime, world: WorldState): void {
   const { app, viewport } = runtime
   const portrait = app.screen.height > app.screen.width * 1.18
@@ -333,6 +360,7 @@ export function WorldCanvas({
   world,
   selectedId,
   tool,
+  labMode,
   onSelect,
   onWorldAction,
   onOneShotComplete,
@@ -382,10 +410,11 @@ export function WorldCanvas({
       const plants = new Graphics()
       const creatures = new Graphics()
       const atmosphere = new Graphics()
+      const social = new Graphics()
       const brush = new Graphics()
-      viewport.addChild(terrain, plants, creatures, atmosphere, brush)
+      viewport.addChild(terrain, plants, creatures, atmosphere, social, brush)
       app.stage.addChild(viewport)
-      const runtime = { app, viewport, terrain, plants, creatures, atmosphere, brush, terrainRevision: -1 }
+      const runtime = { app, viewport, terrain, plants, creatures, atmosphere, social, brush, terrainRevision: -1 }
       runtimeRef.current = runtime
 
       const pointers = new Map<number, PointerPosition>()
@@ -541,7 +570,9 @@ export function WorldCanvas({
     drawPlants(runtime.plants, world)
     drawCreatures(runtime.creatures, world, selectedId)
     drawAtmosphere(runtime.atmosphere, world)
-  }, [selectedId, world])
+    if (labMode) drawSocialLab(runtime.social, world)
+    else runtime.social.clear()
+  }, [labMode, selectedId, world])
 
   return <div className="world-canvas" ref={hostRef} />
 }

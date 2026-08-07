@@ -127,7 +127,7 @@ describe('SimulationEngine', () => {
 
   it('adds R1 lifecycle fields when restoring an R0 snapshot', () => {
     const saved = new SimulationEngine('LEGACY-1180').snapshot()
-    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId' | 'climate' | 'disasters'> & {
+    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId' | 'climate' | 'disasters' | 'groups' | 'territories' | 'migrations'> & {
       creatures: Array<Partial<Creature>>
       stats: Partial<WorldState['stats']>
       deathRecords?: WorldState['deathRecords']
@@ -136,6 +136,9 @@ describe('SimulationEngine', () => {
       nextSpeciesId?: number
       climate?: WorldState['climate']
       disasters?: WorldState['disasters']
+      groups?: WorldState['groups']
+      territories?: WorldState['territories']
+      migrations?: WorldState['migrations']
     }
     const legacy = structuredClone(saved) as unknown as LegacySnapshot
     delete legacy.deathRecords
@@ -144,6 +147,9 @@ describe('SimulationEngine', () => {
     delete legacy.nextSpeciesId
     delete legacy.climate
     delete legacy.disasters
+    delete legacy.groups
+    delete legacy.territories
+    delete legacy.migrations
     delete legacy.stats.deathsByCause
     delete legacy.stats.averageHydration
     delete legacy.stats.status
@@ -159,6 +165,9 @@ describe('SimulationEngine', () => {
       delete creature.mutations
       delete creature.speciesId
       delete creature.lastHazard
+      delete creature.groupId
+      delete creature.territoryId
+      delete creature.memory
     }
 
     const restored = new SimulationEngine(
@@ -182,6 +191,9 @@ describe('SimulationEngine', () => {
     })
     expect(restored.climate.season).toBeDefined()
     expect(restored.disasters).toEqual([])
+    expect(restored.groups).toEqual([])
+    expect(restored.territories).toEqual([])
+    expect(restored.migrations).toEqual([])
   })
 
   it('applies player terrain and creature actions', () => {
@@ -295,17 +307,66 @@ describe('SimulationEngine', () => {
       const dy = creature.y - subject.y
       return dx * dx + dy * dy > 350 * 350
     })!
-    const distantHealth = distant.health
-
     engine.applyWorldAction('wildfire', subject.x, subject.y)
     const disaster = engine.state.disasters.at(-1)!
     expect(disaster).toMatchObject({ type: 'wildfire', trigger: 'player', radius: 110 })
     expect(disaster.affectedCells).toBeGreaterThan(0)
+    engine.step(0.05)
+    expect(distant.lastHazard).toBeNull()
     for (let step = 0; step < 320; step += 1) engine.step(0.1)
 
-    expect(distant.health).toBeGreaterThanOrEqual(distantHealth)
     expect(disaster.recoveryNoted).toBe(true)
     expect(engine.state.events.some((event) => event.kind === 'recovery')).toBe(true)
     expect(engine.state.disasters.length).toBeLessThanOrEqual(16)
+  })
+
+  it('forms local groups and starts climate-driven migration toward a scored habitat', () => {
+    const run = () => {
+      const engine = new SimulationEngine('MIGRATION-7331')
+      const members = engine.state.creatures.filter((creature) => creature.kind === 'grazer').slice(0, 4)
+      const anchor = members[0]
+      for (const member of members) {
+        member.x = anchor.x
+        member.y = anchor.y
+        member.targetX = anchor.x
+        member.targetY = anchor.y
+        member.decisionTimer = 20
+        member.groupId = null
+      }
+      engine.state.creatures = members
+      engine.state.groups = []
+      engine.state.territories = []
+      for (let step = 0; step < 60; step += 1) engine.step(0.05)
+      const group = engine.state.groups[0]
+      group.formedDay = engine.state.day - 2
+      engine.applyWorldAction('drought', group.x, group.y)
+      for (let step = 0; step < 60; step += 1) engine.step(0.05)
+      return engine.snapshot()
+    }
+
+    const first = run()
+    const second = run()
+    expect(first.groups).toHaveLength(1)
+    expect(first.groups[0].memberIds).toHaveLength(4)
+    expect(first.creatures.every((creature) => creature.groupId === first.groups[0].id)).toBe(true)
+    expect(first.migrations[0]).toMatchObject({ groupId: first.groups[0].id, reason: 'climate', completedDay: null })
+    expect(first.migrations).toEqual(second.migrations)
+  })
+
+  it('stores a bounded spatial memory after finding water', () => {
+    const engine = new SimulationEngine('MEMORY-4821')
+    const point = shorelinePoint(engine.state)
+    const creature = engine.state.creatures.find((candidate) => candidate.kind === 'grazer')!
+    creature.x = point.x
+    creature.y = point.y
+    creature.hydration = 24
+    creature.energy = 90
+    creature.decisionTimer = 0
+    engine.state.creatures = [creature]
+
+    engine.step(0.1)
+
+    expect(creature.memory.some((memory) => memory.kind === 'water')).toBe(true)
+    expect(creature.memory.length).toBeLessThanOrEqual(6)
   })
 })

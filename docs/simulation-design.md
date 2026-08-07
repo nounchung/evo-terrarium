@@ -1,7 +1,7 @@
 # Simulation Design Spec
 
-Status: R4 environmental pressure foundation, version 5
-Decision: R1 Design Gate approved; inheritance, species tracking and deterministic climate pressure implemented
+Status: R5 social and spatial behaviour foundation, version 6
+Decision: Inheritance, species, climate and locally emergent social behaviour are implemented
 
 ## 1. Experience contract
 
@@ -121,7 +121,15 @@ Temperature, rainfall, soil moisture, daylight and season are deterministic func
 
 Player-placed events use the same rules as seed events, pause while positioning, affect a visible radius and can be undone. At most sixteen recent disaster records are retained and no more than two seed events are active at once.
 
-## 11. Test strategy
+## 11. Memory, groups and migration
+
+Each organism keeps at most six recent food, water, threat or shelter locations. Memories decay after eight days and are used only when current perception cannot solve an urgent need.
+
+Every three simulated seconds, deterministic local clustering can form a herd of at least three grazers or a pack of at least two hunters. Organisms retain individual survival priorities; cohesion, migration and patrol directives run only after urgent food, water, threat and reproduction decisions. Packs claim bounded territories and their overlap becomes visible competition pressure.
+
+Herds compare their current habitat with sixteen reachable candidate regions. Migration begins only when resources, an active climate hazard or nearby predators make another land region score materially better. The resulting route, reason and completion day are serialized. Packs remain territorial rather than abandoning prey through long migrations.
+
+## 12. Test strategy
 
 - Same-seed equality for terrain and initial entities
 - Three fixed Seeds complete twenty simulated minutes with both trophic levels alive and within caps

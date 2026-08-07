@@ -81,3 +81,18 @@ test('opens the climate lab and arms a bounded regional pressure', async ({ page
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
 })
+
+test('keeps the optional Social Lab live while exposing group rules', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
+  await page.getByRole('button', { name: 'Toggle Social Lab' }).click()
+  await expect(page.getByRole('complementary', { name: 'Social behaviour lab' })).toBeVisible()
+  await expect(page.getByText('OPTIONAL DEBUG VIEW')).toBeVisible()
+  await expect(page.getByText('Local rules, live—not scripted paths')).toBeVisible()
+  await expect(page.getByText('LIVE GROUPS')).toBeVisible()
+  await expect(page.getByText('MIGRATION EVIDENCE')).toBeVisible()
+  await expect(page.getByText('SELECTED MEMORY')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
+  await page.getByRole('button', { name: 'Close Social Lab' }).click()
+  await expect(page.getByRole('complementary', { name: 'Social behaviour lab' })).toBeHidden()
+})
