@@ -118,7 +118,9 @@ test('names a save slot and replays an ecological landmark from the archive', as
   await expect(page.getByText('E2E field notes', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Replay', exact: true }).click()
-  await page.getByRole('button', { name: /A living world awakens/ }).click()
+  await expect(page.locator('.landmark-list > button').first()).toBeVisible()
+  await page.getByLabel('Replay timeline').press('Home')
+  await page.getByRole('button', { name: 'Rebuild here' }).click()
   await expect(page.getByText('Replay rebuilt at tick 0.')).toBeVisible()
   await page.getByRole('button', { name: 'Return live' }).click()
   await expect(page.getByText('Returned to the live world.')).toBeVisible()
