@@ -16,6 +16,7 @@ import {
   type MutationRecord,
   type Plant,
   type Point,
+  type SpeciesRecord,
   type WorldEvent,
   type WorldState,
 } from './types'
@@ -24,6 +25,47 @@ const TAU = Math.PI * 2
 const MAX_CREATURES = 240
 const MAX_PLANTS = 260
 const SPATIAL_CELL_SIZE = 120
+const SPECIATION_DISTANCE = 0.075
+const COMPATIBILITY_DISTANCE = 0.18
+const MAX_SPECIES_PER_KIND = 12
+
+const GENE_RANGES: Record<GeneKey, [number, number]> = {
+  speed: [24, 78],
+  vision: [55, 240],
+  size: [0.58, 1.7],
+  metabolism: [0.45, 1.8],
+  fertility: [0.45, 1.6],
+  hue: [-40, 40],
+}
+
+const INITIAL_SIGNATURES: Record<CreatureKind, Genes> = {
+  grazer: { speed: 42, vision: 118, size: 0.98, metabolism: 0.92, fertility: 1, hue: 3 },
+  hunter: { speed: 50, vision: 155, size: 1.08, metabolism: 1.1, fertility: 0.88, hue: 3 },
+}
+
+export function geneticDistance(a: Genes, b: Genes): number {
+  const genes = Object.keys(GENE_RANGES) as GeneKey[]
+  return genes.reduce((total, gene) => {
+    const [min, max] = GENE_RANGES[gene]
+    return total + Math.abs(a[gene] - b[gene]) / (max - min)
+  }, 0) / genes.length
+}
+
+function initialSpecies(kind: CreatureKind): SpeciesRecord {
+  return {
+    id: kind === 'grazer' ? 1 : 2,
+    kind,
+    name: kind === 'grazer' ? 'Verdant grazer' : 'Ember stalker',
+    founderId: null,
+    parentSpeciesId: null,
+    emergedDay: 1,
+    extinctDay: null,
+    population: 0,
+    peakPopulation: 0,
+    signature: structuredClone(INITIAL_SIGNATURES[kind]),
+    populationHistory: [],
+  }
+}
 
 const emptyDeathCounts = (): DeathCounts => ({
   predation: 0,
@@ -102,14 +144,20 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     lastAttackTick: creature.lastAttackTick ?? -1,
     bornDay: creature.bornDay ?? Math.max(0, cloned.day - creature.age * 10),
     mutations: creature.mutations ?? [],
+    speciesId: creature.speciesId ?? (creature.kind === 'grazer' ? 1 : 2),
   }))
-  const existingGenealogy = cloned.genealogy ?? []
+  const species = cloned.species ?? [initialSpecies('grazer'), initialSpecies('hunter')]
+  const existingGenealogy = (cloned.genealogy ?? []).map((record) => ({
+    ...record,
+    speciesId: record.speciesId ?? (record.kind === 'grazer' ? 1 : 2),
+  }))
   const genealogyById = new Map(existingGenealogy.map((record) => [record.id, record]))
   for (const creature of creatures) {
     if (genealogyById.has(creature.id)) continue
     genealogyById.set(creature.id, {
       id: creature.id,
       kind: creature.kind,
+      speciesId: creature.speciesId,
       species: creature.species,
       generation: creature.generation,
       genes: structuredClone(creature.genes),
@@ -131,6 +179,7 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     genealogyById.set(death.creatureId, {
       id: death.creatureId,
       kind: death.kind,
+      speciesId: death.kind === 'grazer' ? 1 : 2,
       species: death.species,
       generation: death.generation,
       genes: null,
@@ -150,6 +199,8 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     creatures,
     deathRecords: cloned.deathRecords ?? [],
     genealogy: [...genealogyById.values()],
+    species,
+    nextSpeciesId: cloned.nextSpeciesId ?? Math.max(3, ...species.map((record) => record.id + 1)),
     stats: {
       ...cloned.stats,
       kills: cloned.stats.kills ?? 0,
@@ -190,10 +241,12 @@ export class SimulationEngine {
         events: [],
         deathRecords: [],
         genealogy: [],
+        species: [initialSpecies('grazer'), initialSpecies('hunter')],
         day: 1,
         tick: 0,
         rngState: this.random.state,
         nextEntityId: 1,
+        nextSpeciesId: 3,
         stats: {
           grazers: 0,
           hunters: 0,
@@ -354,14 +407,18 @@ export class SimulationEngine {
     generation = 1,
     parents: [number, number] | null = null,
     mutations: MutationRecord[] = [],
+    speciesId = kind === 'grazer' ? 1 : 2,
   ): Creature | null {
     if (this.state.creatures.length >= MAX_CREATURES) return null
     const location = this.landPoint(point)
     if (!location) return null
+    const species = this.state.species.find((record) => record.id === speciesId)
+      ?? this.state.species.find((record) => record.kind === kind)
     const creature: Creature = {
       id: this.nextId(),
       kind,
-      species: kind === 'grazer' ? 'Verdant grazer' : 'Ember stalker',
+      speciesId: species?.id ?? speciesId,
+      species: species?.name ?? (kind === 'grazer' ? 'Verdant grazer' : 'Ember stalker'),
       ...location,
       angle: this.random.range(0, TAU),
       energy: this.random.range(62, 92),
@@ -391,6 +448,7 @@ export class SimulationEngine {
     const lineage: LineageRecord = {
       id: creature.id,
       kind: creature.kind,
+      speciesId: creature.speciesId,
       species: creature.species,
       generation: creature.generation,
       genes: structuredClone(creature.genes),
@@ -467,6 +525,85 @@ export class SimulationEngine {
     return population < this.populationCapacity(kind)
   }
 
+  private areCompatible(a: Creature, b: Creature): boolean {
+    return a.kind === b.kind && geneticDistance(a.genes, b.genes) <= COMPATIBILITY_DISTANCE
+  }
+
+  private speciesName(kind: CreatureKind, genes: Genes, id: number): string {
+    const descriptor = genes.hue > 18
+      ? 'Golden'
+      : genes.hue < -18
+        ? 'Dusky'
+        : genes.speed > (kind === 'grazer' ? 51 : 59)
+          ? 'Swift'
+          : genes.vision > (kind === 'grazer' ? 150 : 195)
+            ? 'Farseeing'
+            : genes.metabolism < 0.72
+              ? 'Frugal'
+              : genes.size > 1.28
+                ? 'Great'
+                : 'Wild'
+    const grazerRoots = ['leafback', 'reedrunner', 'meadowling', 'moss deer']
+    const hunterRoots = ['ash prowler', 'emberclaw', 'redfang', 'dusk stalker']
+    const roots = kind === 'grazer' ? grazerRoots : hunterRoots
+    return `${descriptor} ${roots[(id - 3) % roots.length]}`
+  }
+
+  private resolveSpecies(
+    a: Creature,
+    b: Creature,
+    genes: Genes,
+    generation: number,
+  ): { record: SpeciesRecord; emerged: boolean } {
+    const livingSpecies = this.state.species.filter(
+      (record) => record.kind === a.kind && record.extinctDay === null,
+    )
+    const distances = livingSpecies
+      .map((record) => ({ record, distance: geneticDistance(genes, record.signature) }))
+      .sort((first, second) => first.distance - second.distance)
+    const nearest = distances[0]
+    const fallback = this.state.species.find((record) => record.kind === a.kind)
+    if (!nearest) {
+      if (!fallback) throw new Error(`Missing base species for ${a.kind}`)
+      return { record: fallback, emerged: false }
+    }
+    const parentPopulation = this.state.creatures.reduce(
+      (total, creature) => total + (
+        creature.speciesId === a.speciesId || creature.speciesId === b.speciesId ? 1 : 0
+      ),
+      0,
+    )
+    if (
+      generation >= 5 &&
+      parentPopulation >= 8 &&
+      livingSpecies.length < MAX_SPECIES_PER_KIND &&
+      nearest.distance > SPECIATION_DISTANCE
+    ) {
+      const id = this.state.nextSpeciesId
+      this.state.nextSpeciesId += 1
+      const record: SpeciesRecord = {
+        id,
+        kind: a.kind,
+        name: this.speciesName(a.kind, genes, id),
+        founderId: null,
+        parentSpeciesId: geneticDistance(genes, this.state.species.find((record) => record.id === a.speciesId)?.signature ?? a.genes)
+          <= geneticDistance(genes, this.state.species.find((record) => record.id === b.speciesId)?.signature ?? b.genes)
+          ? a.speciesId
+          : b.speciesId,
+        emergedDay: this.state.day,
+        extinctDay: null,
+        population: 0,
+        peakPopulation: 0,
+        signature: structuredClone(genes),
+        populationHistory: [],
+      }
+      this.state.species.push(record)
+      return { record, emerged: true }
+    }
+    const preferred = distances.find(({ record }) => record.id === a.speciesId || record.id === b.speciesId)
+    return { record: nearest.distance < SPECIATION_DISTANCE ? nearest.record : preferred?.record ?? nearest.record, emerged: false }
+  }
+
   private reproduce(a: Creature, b: Creature): void {
     if (this.state.creatures.length >= MAX_CREATURES || !this.canReproduce(a.kind)) return
     const generation = Math.max(a.generation, b.generation) + 1
@@ -479,6 +616,7 @@ export class SimulationEngine {
     const children: Creature[] = []
     for (let index = 0; index < Math.min(litterSize, available); index += 1) {
       const inheritance = this.inherit(a, b)
+      const resolvedSpecies = this.resolveSpecies(a, b, inheritance.genes, generation)
       const child = this.spawnCreature(
         a.kind,
         {
@@ -489,8 +627,19 @@ export class SimulationEngine {
         generation,
         [a.id, b.id],
         inheritance.mutations,
+        resolvedSpecies.record.id,
       )
-      if (child) children.push(child)
+      if (child) {
+        children.push(child)
+        if (resolvedSpecies.emerged) {
+          resolvedSpecies.record.founderId = child.id
+          this.addEvent(
+            'speciation',
+            `${resolvedSpecies.record.name} has emerged`,
+            `Genetic distance around #${child.id} formed a distinct ${a.kind} lineage.`,
+          )
+        }
+      }
     }
     if (children.length === 0) return
     for (const child of children) {
@@ -624,6 +773,7 @@ export class SimulationEngine {
         inSight.filter(
           (other) =>
             other.kind === creature.kind &&
+            this.areCompatible(creature, other) &&
             other.energy > 70 &&
             other.hydration > 60 &&
             other.age > 3 &&
@@ -702,6 +852,7 @@ export class SimulationEngine {
         this.state.creatures.filter(
           (other) =>
             other.kind === 'hunter' &&
+            this.areCompatible(creature, other) &&
             other.energy > (mateUrgency ? 60 : 76) &&
             other.hydration > (mateUrgency ? 48 : 62) &&
             other.age > (mateUrgency ? 2.5 : 4) &&
@@ -919,6 +1070,33 @@ export class SimulationEngine {
     this.lastHunterCount = this.state.stats.hunters
   }
 
+  private updateSpecies(): void {
+    const counts = new Map<number, number>()
+    for (const creature of this.state.creatures) {
+      counts.set(creature.speciesId, (counts.get(creature.speciesId) ?? 0) + 1)
+    }
+    for (const record of this.state.species) {
+      const population = counts.get(record.id) ?? 0
+      if (record.population > 0 && population === 0 && record.extinctDay === null) {
+        record.extinctDay = this.state.day
+        this.addEvent(
+          'death',
+          `${record.name} has gone extinct`,
+          `Its lineage ended after peaking at ${record.peakPopulation} living organisms.`,
+        )
+      }
+      record.population = population
+      record.peakPopulation = Math.max(record.peakPopulation, population)
+      const previous = record.populationHistory.at(-1)
+      if (!previous || this.state.day - previous.day >= 1) {
+        record.populationHistory.push({ day: this.state.day, population })
+        record.populationHistory = record.populationHistory.slice(-80)
+      } else {
+        previous.population = population
+      }
+    }
+  }
+
   private updateStats(): void {
     let grazers = 0
     let hunters = 0
@@ -967,6 +1145,7 @@ export class SimulationEngine {
       averageHydration,
       status,
     }
+    this.updateSpecies()
   }
 
   applyWorldAction(action: string, x: number, y: number, radius = 52): void {

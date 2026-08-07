@@ -36,6 +36,7 @@ export interface MutationRecord {
 export interface Creature extends Point {
   id: number
   kind: CreatureKind
+  speciesId: number
   species: string
   angle: number
   energy: number
@@ -73,7 +74,7 @@ export interface Plant extends Point {
 export interface WorldEvent {
   id: number
   day: number
-  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player'
+  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player' | 'speciation'
   title: string
   detail: string
 }
@@ -81,6 +82,7 @@ export interface WorldEvent {
 export interface LineageRecord {
   id: number
   kind: CreatureKind
+  speciesId: number
   species: string
   generation: number
   genes: Genes | null
@@ -90,6 +92,25 @@ export interface LineageRecord {
   bornDay: number
   diedDay: number | null
   deathCause: DeathCause | null
+}
+
+export interface SpeciesPopulationPoint {
+  day: number
+  population: number
+}
+
+export interface SpeciesRecord {
+  id: number
+  kind: CreatureKind
+  name: string
+  founderId: number | null
+  parentSpeciesId: number | null
+  emergedDay: number
+  extinctDay: number | null
+  population: number
+  peakPopulation: number
+  signature: Genes
+  populationHistory: SpeciesPopulationPoint[]
 }
 
 export interface DeathRecord {
@@ -133,10 +154,12 @@ export interface WorldState {
   events: WorldEvent[]
   deathRecords: DeathRecord[]
   genealogy: LineageRecord[]
+  species: SpeciesRecord[]
   day: number
   tick: number
   rngState: number
   nextEntityId: number
+  nextSpeciesId: number
   stats: WorldStats
 }
 
