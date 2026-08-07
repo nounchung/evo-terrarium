@@ -25,6 +25,7 @@ describe('Traditional Chinese localization', () => {
     expect(localizeWorldText('Seed MOSS-1738 has begun its first day.', 'zh-HK')).toBe('種子 MOSS-1738 已展開第一天。')
     expect(localizeWorldText('Generation 8 has arrived', 'zh-HK')).toBe('第 8 代已誕生')
     expect(localizeWorldText('Swift reedrunner #73 differs strongly in speed, vision.', 'zh-HK')).toBe('迅捷蘆原奔獸 #73 在速度、視野方面有明顯差異。')
-    expect(localizeWorldText('Ember pack 91 begins migrating', 'zh-HK')).toBe('餘燼獵群 91開始遷徙')
+    expect(localizeWorldText('Ember pack 91 begins migrating', 'zh-HK')).toBe('「餘燼獵群 91」開始遷徙')
+    expect(localizeWorldText('Meadow herd 402 has formed', 'zh-HK')).toBe('「草原獸群 402」已經形成')
   })
 })

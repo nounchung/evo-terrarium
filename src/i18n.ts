@@ -269,7 +269,7 @@ export function localizeWorldText(value: string, locale: Locale): string {
   match = value.match(/^Generation (\d+) has arrived$/)
   if (match) return `第 ${match[1]} 代已誕生`
   match = value.match(/^(.+) has emerged$/)
-  if (match) return `${localizeGeneratedName(match[1], locale)}已經出現`
+  if (match) return `「${localizeGeneratedName(match[1], locale)}」已經出現`
   match = value.match(/^Genetic distance around #(\d+) formed a distinct (grazer|hunter) lineage\.$/)
   if (match) return `#${match[1]} 周圍的基因距離形成了一條獨特的${TERMS.kind[match[2] as CreatureKind]}譜系。`
   match = value.match(/^(.+) #(\d+) differs strongly in (.+)\.$/)
@@ -282,17 +282,17 @@ export function localizeWorldText(value: string, locale: Locale): string {
     return `${origin}${match[2]} 個棲息地格受到影響。`
   }
   match = value.match(/^(.+) has formed$/)
-  if (match) return `${localizeGeneratedName(match[1], locale)}已經形成`
+  if (match) return `「${localizeGeneratedName(match[1], locale)}」已經形成`
   match = value.match(/^(\d+) grazers now use local herd cohesion\.$/)
   if (match) return `${match[1]} 隻食草獸現在會運用局部獸群凝聚規則。`
   match = value.match(/^(\d+) hunters now share a territorial pack\.$/)
   if (match) return `${match[1]} 隻獵食者現在會共同組成有領域的獵群。`
   match = value.match(/^(.+) completed a migration$/)
-  if (match) return `${localizeGeneratedName(match[1], locale)}完成了遷徙`
+  if (match) return `「${localizeGeneratedName(match[1], locale)}」完成了遷徙`
   match = value.match(/^The (resources|climate|threat)-driven route ended after ([\d.]+) days\.$/)
   if (match) return `由${TERMS.migration[match[1] as MigrationReason]}驅動的路線在 ${match[2]} 天後完成。`
   match = value.match(/^(.+) begins migrating$/)
-  if (match) return `${localizeGeneratedName(match[1], locale)}開始遷徙`
+  if (match) return `「${localizeGeneratedName(match[1], locale)}」開始遷徙`
   match = value.match(/^(Resources|Climate|Threat) pressure produced a route toward a stronger habitat score\.$/)
   if (match) return `${TERMS.migration[match[1].toLowerCase() as MigrationReason]}壓力促使獸群前往棲息條件評分更高的區域。`
   match = value.match(/^(.+) #(\d+) became part of the food chain\.$/)
@@ -308,7 +308,7 @@ export function localizeWorldText(value: string, locale: Locale): string {
   match = value.match(/^(.+) #(\d+) reached age ([\d.]+)\.$/)
   if (match) return `${localizeGeneratedName(match[1], locale)} #${match[2]} 活到 ${match[3]} 天。`
   match = value.match(/^(.+) has gone extinct$/)
-  if (match) return `${localizeGeneratedName(match[1], locale)}已經滅絕`
+  if (match) return `「${localizeGeneratedName(match[1], locale)}」已經滅絕`
   match = value.match(/^Its lineage ended after peaking at (\d+) living organisms\.$/)
   if (match) return `該譜系在最高達到 ${match[1]} 個活體後終結。`
   return localizeGeneratedName(value, locale)
