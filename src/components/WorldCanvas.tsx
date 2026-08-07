@@ -317,6 +317,8 @@ export function WorldCanvas({
       const onPointerDown = (event: PointerEvent) => {
         canvas.setPointerCapture(event.pointerId)
         const point = screenPoint(event)
+        brushPointRef.current = worldPoint(point)
+        drawBrushPreview(runtime, toolRef.current, brushPointRef.current)
         pointers.set(event.pointerId, point)
         if (pointers.size === 1) {
           dragStart = point
@@ -329,11 +331,11 @@ export function WorldCanvas({
         }
       }
       const onPointerMove = (event: PointerEvent) => {
-        if (!pointers.has(event.pointerId)) return
         const point = screenPoint(event)
-        pointers.set(event.pointerId, point)
         brushPointRef.current = worldPoint(point)
         drawBrushPreview(runtime, toolRef.current, brushPointRef.current)
+        if (!pointers.has(event.pointerId)) return
+        pointers.set(event.pointerId, point)
         if (pointers.size === 2) {
           const [first, second] = [...pointers.values()]
           const distance = Math.hypot(second.x - first.x, second.y - first.y)
