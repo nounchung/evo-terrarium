@@ -1,7 +1,7 @@
 # Simulation Design Spec
 
-Status: R1 food-chain foundation, version 2
-Decision: R0 Design Gate approved; R1 lifecycle implemented for validation
+Status: R2 genealogy foundation, version 3
+Decision: R1 Design Gate approved; R2 inheritance and lineage implemented for validation
 
 ## 1. Experience contract
 
@@ -52,7 +52,7 @@ Painting terrain increments `terrainRevision`; PixiJS only rebuilds the terrain 
 
 ## 5. Organism model
 
-Every organism stores identity, species, position, age, health, energy, hydration, behaviour, life-history counters, parents, offspring and heritable genes.
+Every organism stores identity, species, position, age, health, energy, hydration, behaviour, life-history counters, parents, offspring, heritable genes and mutation evidence. A separate durable genealogy record preserves those relationships after death.
 
 | Gene | Phenotype / rule effect | Initial bounded range |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ Creatures, plants and cached shoreline drinking points are bucketed into 120-uni
 - Age, starvation, dehydration and predation are explicit death paths stored in a bounded death ledger.
 - Predator attacks use cooldowns so contact does not apply damage every AI decision tick.
 
-R2 will build the dedicated genealogy and mutation-inspection experience on this stable lifecycle.
+R3 will use accumulated genetic distance and common ancestry to model deterministic speciation.
 
 ## 9. Persistence and compatibility
 

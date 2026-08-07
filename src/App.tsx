@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import { WorldCanvas } from './components/WorldCanvas'
+import { LineagePanel } from './components/LineagePanel'
 import { loadWorld, saveWorld } from './simulation/storage'
 import type {
   CreationTool,
@@ -97,6 +98,7 @@ function App() {
   const [speed, setSpeed] = useState<SimSpeed>(1)
   const [tool, setTool] = useState<CreationTool>('inspect')
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [lineageOpen, setLineageOpen] = useState(false)
   const [seedDialog, setSeedDialog] = useState(false)
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
   const [saved, setSaved] = useState(false)
@@ -105,11 +107,20 @@ function App() {
   const worldRef = useRef<WorldState | null>(null)
   const dialogReturnSpeedRef = useRef<SimSpeed>(1)
   const toolReturnSpeedRef = useRef<SimSpeed>(1)
+  const lineageReturnSpeedRef = useRef<SimSpeed>(1)
 
   worldRef.current = world
   const selected = useMemo(
     () => world?.creatures.find((creature) => creature.id === selectedId) ?? null,
     [selectedId, world],
+  )
+  const selectedLineage = useMemo(
+    () => world?.genealogy.find((record) => record.id === selectedId) ?? null,
+    [selectedId, world],
+  )
+  const livingIds = useMemo(
+    () => new Set(world?.creatures.map((creature) => creature.id) ?? []),
+    [world],
   )
 
   useEffect(() => {
@@ -150,10 +161,10 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (selectedId && world && !world.creatures.some((creature) => creature.id === selectedId)) {
+    if (selectedId && world && !lineageOpen && !world.creatures.some((creature) => creature.id === selectedId)) {
       setSelectedId(null)
     }
-  }, [selectedId, world])
+  }, [lineageOpen, selectedId, world])
 
   const send = (command: WorkerCommand) => workerRef.current?.postMessage(command)
   const changeSpeed = (nextSpeed: SimSpeed) => {
@@ -164,6 +175,7 @@ function App() {
     const nextSeed = seedDraft.trim().toUpperCase() || makeSeed()
     setSeedDraft(nextSeed)
     setSelectedId(null)
+    setLineageOpen(false)
     setTool('inspect')
     setSeedDialog(false)
     send({ type: 'reset', seed: nextSeed })
@@ -171,8 +183,11 @@ function App() {
   }
   const openSeedDialog = () => {
     if (seedDialog) return
-    dialogReturnSpeedRef.current = tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    dialogReturnSpeedRef.current = lineageOpen
+      ? lineageReturnSpeedRef.current
+      : tool === 'inspect' ? speed : toolReturnSpeedRef.current
     setTool('inspect')
+    setLineageOpen(false)
     setSeedDialog(true)
     changeSpeed(0)
   }
@@ -184,14 +199,31 @@ function App() {
     setTool('inspect')
     changeSpeed(toolReturnSpeedRef.current)
   }
+  const openLineage = (id: number) => {
+    if (!lineageOpen) {
+      lineageReturnSpeedRef.current = speed
+      changeSpeed(0)
+    }
+    setSelectedId(id)
+    setLineageOpen(true)
+  }
+  const closeLineage = () => {
+    setLineageOpen(false)
+    if (selectedId !== null && !worldRef.current?.creatures.some((creature) => creature.id === selectedId)) {
+      setSelectedId(null)
+    }
+    changeSpeed(lineageReturnSpeedRef.current)
+  }
   const chooseTool = (nextTool: CreationTool) => {
     setSelectedId(null)
+    const speedBeforeTool = lineageOpen ? lineageReturnSpeedRef.current : speed
+    setLineageOpen(false)
     if (nextTool === 'inspect') {
       if (tool !== 'inspect') finishCreation()
       return
     }
     if (tool === 'inspect') {
-      toolReturnSpeedRef.current = speed
+      toolReturnSpeedRef.current = speedBeforeTool
       changeSpeed(0)
     }
     setTool(nextTool)
@@ -202,11 +234,18 @@ function App() {
       if (event.key !== 'Escape') return
       if (seedDialog) closeSeedDialog()
       else if (tool !== 'inspect') finishCreation()
+      else if (lineageOpen) {
+        setLineageOpen(false)
+        if (selectedId !== null && !worldRef.current?.creatures.some((creature) => creature.id === selectedId)) {
+          setSelectedId(null)
+        }
+        changeSpeed(lineageReturnSpeedRef.current)
+      }
       else if (selectedId !== null) setSelectedId(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [seedDialog, selectedId, tool])
+  }, [lineageOpen, seedDialog, selectedId, tool])
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void document.documentElement.requestFullscreen?.()
@@ -227,6 +266,21 @@ function App() {
   const speedDifference = selected && averagePeerSpeed
     ? Math.round((selected.genes.speed / averagePeerSpeed - 1) * 100)
     : 0
+  const latestCreature = useMemo(
+    () => {
+      if (!world || world.creatures.length === 0) return null
+      return world.creatures.reduce((latest, creature) =>
+        creature.generation > latest.generation || (
+          creature.generation === latest.generation && creature.mutations.length > latest.mutations.length
+        ) ? creature : latest,
+      world.creatures[0])
+    },
+    [world],
+  )
+  const browseLatestLineage = () => {
+    if (!latestCreature) return
+    openLineage(latestCreature.id)
+  }
 
   return (
     <main className={`terrarium ${tool !== 'inspect' ? 'is-creating' : ''}`}>
@@ -250,7 +304,7 @@ function App() {
           <div><span className="stat-dot grazer"/><strong>{world?.stats.grazers ?? '—'}</strong><small>Grazers</small></div>
           <div><span className="stat-dot hunter"/><strong>{world?.stats.hunters ?? '—'}</strong><small>Hunters</small></div>
           <div className="desktop-stat"><span className="stat-dot plant"/><strong>{world?.stats.plants ?? '—'}</strong><small>Plants</small></div>
-          <div><Icon name="spark" size={15}/><strong>G{world?.stats.maxGeneration ?? 1}</strong><small>Generation</small></div>
+          <button className="lineage-stat" type="button" onClick={browseLatestLineage} disabled={!latestCreature} aria-label="Browse latest lineage"><Icon name="spark" size={15}/><strong>G{world?.stats.maxGeneration ?? 1}</strong><small>Generation</small></button>
         </section>
 
         <div className="top-actions">
@@ -297,7 +351,7 @@ function App() {
 
       {selected && (
         <aside className="creature-card glass" aria-label="Selected creature details">
-          <button className="card-close" type="button" onClick={() => setSelectedId(null)} aria-label="Close creature details"><Icon name="close"/></button>
+          <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
           <div className="creature-title"><small>{selected.kind.toUpperCase()} · #{selected.id}</small><h2>{selected.species}</h2><p>Generation {selected.generation} · {selected.behaviour}</p></div>
           <div className="creature-insight">
@@ -322,9 +376,20 @@ function App() {
             <GeneBar label="Vision" value={selected.genes.vision} min={55} max={240}/>
             <GeneBar label="Size" value={selected.genes.size * 100} min={58} max={170}/>
             <GeneBar label="Efficiency" value={(2 - selected.genes.metabolism) * 50} min={10} max={80}/>
+            {selected.mutations.length > 0 && <div className="mutation-summary"><strong>{selected.mutations.filter((mutation) => mutation.significant).length}</strong><span>notable · {selected.mutations.length} total mutations</span></div>}
           </div>
-          <footer><span><strong>{selected.children.length}</strong> offspring</span><span>{selected.parents ? `Parents #${selected.parents.join(' · #')}` : 'First generation'}</span></footer>
+          <footer><span><strong>{selected.children.length}</strong> offspring</span><button type="button" onClick={() => openLineage(selected.id)}>Open genealogy</button></footer>
         </aside>
+      )}
+
+      {lineageOpen && selectedLineage && world && (
+        <LineagePanel
+          subject={selectedLineage}
+          genealogy={world.genealogy}
+          livingIds={livingIds}
+          onClose={closeLineage}
+          onSelectLiving={(id) => setSelectedId(id)}
+        />
       )}
 
       <section className="time-controls glass" aria-label="Simulation speed">

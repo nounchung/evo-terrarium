@@ -76,6 +76,9 @@ function hslToNumber(hue: number, saturation: number, lightness: number): number
   )
 }
 
+const geneRatio = (value: number, min: number, max: number) =>
+  Math.max(0, Math.min(1, (value - min) / (max - min)))
+
 function drawTerrain(runtime: CanvasRuntime, world: WorldState): void {
   const graphic = runtime.terrain
   graphic.clear()
@@ -134,12 +137,47 @@ function drawPlants(graphic: Graphics, world: WorldState): void {
 
 function drawGrazer(graphic: Graphics, creature: Creature): void {
   const scale = creature.genes.size
+  const speedShape = geneRatio(creature.genes.speed, 24, 78)
+  const visionShape = geneRatio(creature.genes.vision, 55, 240)
   const body = hslToNumber(55 + creature.genes.hue, 70, 72)
   const dark = hslToNumber(55 + creature.genes.hue, 42, 32)
   const headX = creature.x + Math.cos(creature.angle) * 8 * scale
   const headY = creature.y + Math.sin(creature.angle) * 8 * scale
+  const legLength = (3 + speedShape * 4) * scale
+  const sideX = Math.cos(creature.angle + Math.PI / 2)
+  const sideY = Math.sin(creature.angle + Math.PI / 2)
+  for (const offset of [-4, 4]) {
+    const legX = creature.x + Math.cos(creature.angle) * offset * scale
+    const legY = creature.y + Math.sin(creature.angle) * offset * scale
+    graphic
+      .moveTo(legX - sideX * 2.5 * scale, legY - sideY * 2.5 * scale)
+      .lineTo(legX - sideX * legLength, legY - sideY * legLength)
+      .stroke({ color: dark, width: 1.3 * scale, alpha: 0.78 })
+    graphic
+      .moveTo(legX + sideX * 2.5 * scale, legY + sideY * 2.5 * scale)
+      .lineTo(legX + sideX * legLength, legY + sideY * legLength)
+      .stroke({ color: dark, width: 1.3 * scale, alpha: 0.78 })
+  }
   graphic.ellipse(creature.x, creature.y, 8.5 * scale, 5.5 * scale).fill({ color: body, alpha: 0.98 })
   graphic.circle(headX, headY, 4.2 * scale).fill({ color: body, alpha: 1 })
+  const earLength = (2.4 + visionShape * 4.5) * scale
+  graphic
+    .moveTo(headX, headY)
+    .lineTo(headX + Math.cos(creature.angle + 1.75) * earLength, headY + Math.sin(creature.angle + 1.75) * earLength)
+    .stroke({ color: body, width: 2.1 * scale, alpha: 0.96 })
+  graphic
+    .moveTo(headX, headY)
+    .lineTo(headX + Math.cos(creature.angle - 1.75) * earLength, headY + Math.sin(creature.angle - 1.75) * earLength)
+    .stroke({ color: body, width: 2.1 * scale, alpha: 0.96 })
+  const markings = Math.max(1, Math.round(geneRatio(creature.genes.fertility, 0.45, 1.6) * 3))
+  for (let index = 0; index < markings; index += 1) {
+    const offset = (index - (markings - 1) / 2) * 3.1 * scale
+    graphic.circle(
+      creature.x + Math.cos(creature.angle) * offset,
+      creature.y + Math.sin(creature.angle) * offset,
+      0.85 * scale,
+    ).fill({ color: dark, alpha: 0.38 })
+  }
   const eyeX = headX + Math.cos(creature.angle - 0.5) * 2.6 * scale
   const eyeY = headY + Math.sin(creature.angle - 0.5) * 2.6 * scale
   graphic.circle(eyeX, eyeY, 0.85 * scale).fill(dark)
@@ -153,6 +191,8 @@ function drawGrazer(graphic: Graphics, creature: Creature): void {
 
 function drawHunter(graphic: Graphics, creature: Creature): void {
   const scale = creature.genes.size
+  const speedShape = geneRatio(creature.genes.speed, 24, 78)
+  const visionShape = geneRatio(creature.genes.vision, 55, 240)
   const colour = hslToNumber(12 + creature.genes.hue, 74, 62)
   const noseX = creature.x + Math.cos(creature.angle) * 11 * scale
   const noseY = creature.y + Math.sin(creature.angle) * 11 * scale
@@ -160,7 +200,26 @@ function drawHunter(graphic: Graphics, creature: Creature): void {
   const leftY = creature.y + Math.sin(creature.angle + 2.35) * 8 * scale
   const rightX = creature.x + Math.cos(creature.angle - 2.35) * 8 * scale
   const rightY = creature.y + Math.sin(creature.angle - 2.35) * 8 * scale
+  const tailLength = (7 + speedShape * 8) * scale
+  graphic
+    .moveTo(creature.x - Math.cos(creature.angle) * 5 * scale, creature.y - Math.sin(creature.angle) * 5 * scale)
+    .lineTo(creature.x - Math.cos(creature.angle - 0.35) * tailLength, creature.y - Math.sin(creature.angle - 0.35) * tailLength)
+    .stroke({ color: colour, width: 2.2 * scale, alpha: 0.78 })
   graphic.poly([noseX, noseY, leftX, leftY, creature.x - Math.cos(creature.angle) * 5 * scale, creature.y - Math.sin(creature.angle) * 5 * scale, rightX, rightY]).fill({ color: colour, alpha: 0.96 })
+  const crestLength = (2 + visionShape * 4) * scale
+  graphic
+    .moveTo(creature.x, creature.y)
+    .lineTo(creature.x + Math.cos(creature.angle + 1.6) * crestLength, creature.y + Math.sin(creature.angle + 1.6) * crestLength)
+    .stroke({ color: 0x7d3227, width: 1.8 * scale, alpha: 0.85 })
+  const markings = Math.max(1, Math.round(geneRatio(creature.genes.fertility, 0.45, 1.6) * 3))
+  for (let index = 0; index < markings; index += 1) {
+    const offset = (index - (markings - 1) / 2) * 2.8 * scale
+    graphic.circle(
+      creature.x - Math.cos(creature.angle) * 1.5 * scale + Math.cos(creature.angle + Math.PI / 2) * offset,
+      creature.y - Math.sin(creature.angle) * 1.5 * scale + Math.sin(creature.angle + Math.PI / 2) * offset,
+      0.75 * scale,
+    ).fill({ color: 0x6f2d25, alpha: 0.55 })
+  }
   graphic.circle(noseX, noseY, 1.4 * scale).fill(0x4b1f1a)
   graphic.circle(creature.x + Math.cos(creature.angle - 0.5) * 4 * scale, creature.y + Math.sin(creature.angle - 0.5) * 4 * scale, 0.9 * scale).fill(0xffe7a4)
 }
@@ -182,6 +241,17 @@ function drawCreatures(
     }
     if (creature.kind === 'grazer') drawGrazer(graphic, creature)
     else drawHunter(graphic, creature)
+    if (creature.mutations.some((mutation) => mutation.significant)) {
+      const markerY = creature.y - 16 * creature.genes.size
+      graphic
+        .poly([
+          creature.x, markerY - 3,
+          creature.x + 3, markerY,
+          creature.x, markerY + 3,
+          creature.x - 3, markerY,
+        ])
+        .fill({ color: 0xf2d976, alpha: 0.94 })
+    }
     if (creature.behaviour === 'drink') {
       const markerY = creature.y - 13 * creature.genes.size
       graphic

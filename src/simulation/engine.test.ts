@@ -127,13 +127,15 @@ describe('SimulationEngine', () => {
 
   it('adds R1 lifecycle fields when restoring an R0 snapshot', () => {
     const saved = new SimulationEngine('LEGACY-1180').snapshot()
-    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords'> & {
+    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy'> & {
       creatures: Array<Partial<Creature>>
       stats: Partial<WorldState['stats']>
       deathRecords?: WorldState['deathRecords']
+      genealogy?: WorldState['genealogy']
     }
     const legacy = structuredClone(saved) as unknown as LegacySnapshot
     delete legacy.deathRecords
+    delete legacy.genealogy
     delete legacy.stats.deathsByCause
     delete legacy.stats.averageHydration
     delete legacy.stats.status
@@ -145,6 +147,8 @@ describe('SimulationEngine', () => {
       delete creature.kills
       delete creature.lastAttackerId
       delete creature.lastAttackTick
+      delete creature.bornDay
+      delete creature.mutations
     }
 
     const restored = new SimulationEngine(
@@ -155,6 +159,7 @@ describe('SimulationEngine', () => {
     expect(restored.creatures[0].hydration).toBe(76)
     expect(restored.creatures[0].drinks).toBe(0)
     expect(restored.deathRecords).toEqual([])
+    expect(restored.genealogy).toHaveLength(restored.creatures.length)
     expect(restored.stats.deathsByCause).toEqual({
       predation: 0,
       starvation: 0,
@@ -187,5 +192,25 @@ describe('SimulationEngine', () => {
     expect(engine.undoWorldAction()).toBe(true)
     expect(engine.snapshot()).toEqual(before)
     expect(engine.canUndo()).toBe(false)
+  })
+
+  it('records inherited mutations and persistent multi-generation genealogy', () => {
+    const engine = new SimulationEngine('LINEAGE-8824')
+    for (let step = 0; step < 6_000; step += 1) engine.step(0.05)
+    const world = engine.snapshot()
+    const descendants = world.genealogy.filter((record) => record.generation > 1)
+    const mutations = descendants.flatMap((record) => record.mutations)
+
+    expect(descendants.length).toBeGreaterThan(0)
+    expect(descendants.every((record) => record.parents?.length === 2)).toBe(true)
+    expect(mutations.length).toBeGreaterThan(0)
+    expect(mutations.every((mutation) => Number.isFinite(mutation.value))).toBe(true)
+    expect(world.creatures.every((creature) => {
+      const record = world.genealogy.find((entry) => entry.id === creature.id)
+      return record?.diedDay === null && record.children.length === creature.children.length
+    })).toBe(true)
+
+    const restored = new SimulationEngine(world.seed, world).snapshot()
+    expect(restored.genealogy).toEqual(world.genealogy)
   })
 })
