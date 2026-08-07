@@ -134,7 +134,8 @@ export type WorkerCommand =
       radius?: number
     }
   | { type: 'snapshot' }
+  | { type: 'undo' }
 
 export type WorkerMessage =
-  | { type: 'ready'; world: WorldState }
-  | { type: 'snapshot'; world: WorldState; speed: SimSpeed }
+  | { type: 'ready'; world: WorldState; canUndo: boolean }
+  | { type: 'snapshot'; world: WorldState; speed: SimSpeed; canUndo: boolean }

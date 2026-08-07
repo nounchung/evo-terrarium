@@ -123,6 +123,7 @@ export class SimulationEngine {
   private lastHunterCount = 0
   private waterSources: Point[] = []
   private waterSourcesRevision = -1
+  private undoStack: WorldState[] = []
 
   constructor(seed: string, restored?: WorldState) {
     if (restored?.version === 1) {
@@ -877,6 +878,8 @@ export class SimulationEngine {
   }
 
   applyWorldAction(action: string, x: number, y: number, radius = 52): void {
+    this.undoStack.push(this.snapshot())
+    if (this.undoStack.length > 12) this.undoStack.shift()
     if (action === 'plant') {
       for (let index = 0; index < 5; index += 1) {
         this.spawnPlant({ x: x + this.random.range(-radius, radius), y: y + this.random.range(-radius, radius) })
@@ -937,6 +940,22 @@ export class SimulationEngine {
       creature.behaviour = 'wander'
     }
     this.updateStats()
+  }
+
+  canUndo(): boolean {
+    return this.undoStack.length > 0
+  }
+
+  undoWorldAction(): boolean {
+    const previous = this.undoStack.pop()
+    if (!previous) return false
+    this.state = previous
+    this.random = new SeededRandom(previous.rngState)
+    this.waterSourcesRevision = -1
+    this.refreshWaterSources()
+    this.lastGrazerCount = this.state.stats.grazers
+    this.lastHunterCount = this.state.stats.hunters
+    return true
   }
 
   snapshot(): WorldState {

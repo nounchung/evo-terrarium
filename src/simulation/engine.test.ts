@@ -175,4 +175,17 @@ describe('SimulationEngine', () => {
     expect(after.terrainRevision).toBe(before.terrainRevision + 1)
     expect(after.stats.grazers).toBe(before.stats.grazers + 1)
   })
+
+  it('undoes the most recent creation action without changing the saved baseline', () => {
+    const engine = new SimulationEngine('UNDO-4102')
+    const before = engine.snapshot()
+
+    engine.applyWorldAction('water', before.creatures[0].x, before.creatures[0].y, 70)
+
+    expect(engine.canUndo()).toBe(true)
+    expect(engine.state.terrainRevision).toBe(before.terrainRevision + 1)
+    expect(engine.undoWorldAction()).toBe(true)
+    expect(engine.snapshot()).toEqual(before)
+    expect(engine.canUndo()).toBe(false)
+  })
 })

@@ -17,8 +17,8 @@ function send(type: WorkerMessage['type']): void {
   if (!engine) return
   const message: WorkerMessage =
     type === 'ready'
-      ? { type, world: engine.snapshot() }
-      : { type, world: engine.snapshot(), speed }
+      ? { type, world: engine.snapshot(), canUndo: engine.canUndo() }
+      : { type, world: engine.snapshot(), speed, canUndo: engine.canUndo() }
   context.postMessage(message)
 }
 
@@ -42,6 +42,11 @@ context.addEventListener('message', (event: MessageEvent<WorkerCommand>) => {
     return
   }
   if (command.type === 'snapshot') {
+    send('snapshot')
+    return
+  }
+  if (command.type === 'undo') {
+    engine?.undoWorldAction()
     send('snapshot')
     return
   }
@@ -69,4 +74,3 @@ setInterval(() => {
     send('snapshot')
   }
 }, 32)
-
