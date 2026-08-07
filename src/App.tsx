@@ -647,7 +647,7 @@ function App() {
       </section>
 
       <section id="world-accessibility-summary" className="visually-hidden">
-        <h1>EvoTerrarium living world</h1>
+        <h1>Living ecosystem summary</h1>
         <p>{population} creatures across {livingSpecies} living species. The food web is {foodWebLabel}. Current season: {season}.</p>
         <p>Use the creation tools to alter habitat. Use simulation speed controls to pause or advance time.</p>
       </section>

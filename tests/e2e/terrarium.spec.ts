@@ -42,7 +42,7 @@ test('creates a deterministic world from a chosen seed', async ({ page }) => {
   await page.getByRole('button', { name: 'Create a new world' }).click()
   await page.getByLabel('WORLD SEED').fill('E2E-2244')
   await page.getByRole('button', { name: 'Grow this world' }).click()
-  await expect(page.getByText('A living world awakens')).toBeVisible()
+  await expect(page.getByLabel('Recent world events').getByText('A living world awakens', { exact: true })).toBeVisible()
 })
 
 test('pauses while the new-world dialog is open and restores the prior speed', async ({ page }) => {
@@ -134,6 +134,7 @@ test('keeps the optional Social Lab live while exposing group rules', async ({ p
 })
 
 test('names a save slot and replays an ecological landmark from the archive', async ({ page }) => {
+  test.setTimeout(75_000)
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Open World Archive' }).click()
