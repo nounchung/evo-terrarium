@@ -28,6 +28,17 @@ R1 turns the R0 living-world prototype into a complete, observable survival loop
 - R0 snapshots receive safe defaults for every new R1 field
 - JSON save and restore remains lossless after migration
 
+## R1.1 Design Gate fixes
+
+| Finding | Resolution | Evidence |
+| --- | --- | --- |
+| New-world dialog let a 20× world keep evolving | Opening the dialog pauses immediately and closing it restores the exact prior speed | Population and generation remained unchanged during a timed browser check |
+| Creation mode could turn an intended pan into terrain painting | Creation tools now apply on tap; drag and pinch remain navigation gestures | A browser drag left Undo disabled; a tap enabled it |
+| Creation at high speed could skip generations while the player chose a location | Entering creation mode pauses the world and Done, Escape or a one-shot creature placement restores the prior speed | 20× → Water produced a stable paused world and returned to 20× |
+| Terrain edits were hard to predict or reverse | Brush footprint preview, active-mode banner and a bounded Undo stack were added | Engine undo test plus browser interaction passed |
+| Dense microcopy and small controls reduced legibility | Core labels, events, organism details and mobile controls now use higher contrast and 44px targets | Desktop visual review passed; responsive rules preserve the same targets |
+| Organism cards exposed numbers without meaning | Cards now explain current intent and compare movement speed with living peers | Browser-visible narrative and trait comparison added |
+
 ## Design review focus
 
 1. Can a player understand that the water-drop marker means a creature is seeking water?
@@ -40,5 +51,4 @@ R1 turns the R0 living-world prototype into a complete, observable survival loop
 - This validation proves bounded behaviour for a fixed Seed suite; it does not claim every possible world will avoid natural extinction.
 - Death records are intentionally limited to the latest 80 entries until the R6 replay system adds a durable action and event log.
 - Predator mating calls model long-range scent or calls abstractly; territory and social memory arrive in R5.
-- Browser visual and physical touch-device QA still require an environment with a launchable browser.
-
+- Desktop browser interaction and visual QA passed on the deployed R1.1 preview. Physical iPhone touch validation remains part of the R7 cross-device gate.
