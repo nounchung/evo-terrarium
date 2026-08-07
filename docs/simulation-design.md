@@ -1,0 +1,113 @@
+# Simulation Design Spec
+
+Status: R0 foundation, version 1  
+Decision: approved for technical prototype by project handoff
+
+## 1. Experience contract
+
+The world must feel alive without player micromanagement. Every visible movement is produced by simulation state, not a scripted animation. The player changes conditions; organisms decide how to respond.
+
+The screen remains world-first:
+
+- The PixiJS terrarium occupies the full viewport.
+- Persistent UI is limited to compact glass overlays.
+- Detailed information appears only after selecting a creature.
+- Creation tools are reachable with a thumb and collapse naturally on small screens.
+
+## 2. Runtime boundaries
+
+| Boundary | Responsibility | Must not own |
+| --- | --- | --- |
+| Simulation engine | Terrain, entities, genes, decisions, lifecycle, deterministic random stream | DOM, React, PixiJS |
+| Web Worker | Fixed timestep, speed multiplier, snapshots, world commands | UI layout |
+| React | HUD, tools, selection, dialogs, accessibility | Ecological rules |
+| PixiJS | Terrain and entity rendering, pan/zoom gestures | Source-of-truth state |
+| IndexedDB | Versioned local world snapshot | Simulation logic |
+
+The worker is authoritative. UI actions are commands; they never mutate a rendered snapshot directly.
+
+## 3. Determinism
+
+- The string seed is hashed into a 32-bit pseudo-random state.
+- Terrain uses coordinate-based seeded value noise, so generation order cannot alter the landscape.
+- Entity creation and mutation use a serializable random state.
+- The engine advances in fixed `0.05`-second steps.
+- World snapshots include schema version, tick, entity IDs, random state and terrain revision.
+
+Same seed guarantees the same initial world. Exact replay after player actions will be completed in R6 with an ordered action log.
+
+## 4. World model
+
+The R0 world is 1,440 × 900 logical units with 40-unit terrain cells.
+
+| Biome | Traversable | Resource profile | Visual role |
+| --- | --- | --- | --- |
+| Deep water | No | Future aquatic system | Dark channels and lakes |
+| Water | No in R0 | Future drinking | Shoreline and barriers |
+| Meadow | Yes | Fast plant growth | Bright open feeding areas |
+| Grass | Yes | Moderate growth | General habitat |
+| Forest | Yes | Dense, slower growth | Cover and visual structure |
+
+Painting terrain increments `terrainRevision`; PixiJS only rebuilds the terrain layer when that value changes.
+
+## 5. Organism model
+
+Every organism stores identity, species, position, age, health, energy, behaviour, parents, offspring and heritable genes.
+
+| Gene | Phenotype / rule effect | Initial bounded range |
+| --- | --- | --- |
+| Speed | Travel and chase/flee velocity | Species-specific |
+| Vision | Resource, threat and mate search radius | 55–240 |
+| Size | Rendered body and metabolic cost | 0.58–1.70 |
+| Metabolism | Passive energy consumption | 0.45–1.80 |
+| Fertility | Reproduction cooldown | 0.45–1.60 |
+| Hue | Visible body colour variation | −40–40 |
+
+Offspring select each gene from one of two parents. Each gene has a bounded mutation chance and magnitude. The phenotype is rendered directly from the gene values.
+
+## 6. Decision model
+
+R0 uses Utility AI priorities with a short decision interval:
+
+### Grazer
+
+1. Flee a visible hunter.
+2. Seek a compatible mate when mature and well-fed.
+3. Seek a mature plant when energy is below target.
+4. Wander or rest.
+
+### Hunter
+
+1. Seek a compatible mate when mature and well-fed.
+2. Chase and attack visible grazers.
+3. Wander or rest.
+
+Movement and decision frequency are separate. This keeps paths smooth while avoiding a full AI search every render frame.
+
+## 7. Spatial performance
+
+Creatures and plants are bucketed into 120-unit spatial cells each simulation step. Perception searches neighbouring buckets instead of the whole world. R0 caps are 240 creatures and 260 plant nodes; these limits will be load-tested before expansion.
+
+## 8. Stability rules
+
+- Hard caps prevent runaway entity creation.
+- Reproduction requires two mature, energetic organisms and applies energy cost plus cooldown.
+- Plant nodes regrow and new wild nodes appear at a bounded interval.
+- Invalid or water movement redirects an organism rather than corrupting its position.
+- Age, starvation and predation are distinct death paths.
+
+R1 will tune carrying capacity, add drinking and record explicit death causes.
+
+## 9. Persistence and compatibility
+
+World schema version `1` is stored in IndexedDB. Loading rejects incompatible versions and starts a fresh seeded world. Future schema changes require migration functions; UI-only state such as open panels is not persisted.
+
+## 10. Test strategy
+
+- Same-seed equality for terrain and initial entities
+- Long simulated runs remain finite and within caps
+- JSON serialization round-trip preserves state
+- Player commands change the intended authoritative state
+- Playwright smoke flows at desktop Chromium and mobile Safari emulation
+- Visual QA at desktop and phone viewport sizes
+
