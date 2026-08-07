@@ -459,7 +459,9 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
   .time-controls button { min-width: 44px; height: 44px; padding: 0 5px; }
   .time-controls button:last-of-type { display: none; }
   .population { min-width: 40px; padding-right: 4px; }
-  .world-calendar { display: none; }
+  .world-calendar { left: max(9px, env(safe-area-inset-left)); bottom: max(11px, env(safe-area-inset-bottom)); display: flex; min-height: 50px; padding: 5px; border-radius: 14px; }
+  .world-calendar > div, .world-calendar > i { display: none; }
+  .world-calendar .weather-orb { width: 40px; height: 40px; }
   .event-feed { top: 108px; right: 9px; width: 218px; }
   .event-card { padding: 8px 9px; }
   .event-card:nth-child(n + 2) { display: none; }
@@ -502,7 +504,7 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
 }
 
 @media (max-height: 560px) and (orientation: landscape) {
-  .event-feed, .world-calendar, .gesture-hint { display: none; }
+  .event-feed, .gesture-hint { display: none; }
   .creation-palette { left: max(9px, env(safe-area-inset-left)); }
   .topbar { top: max(8px, env(safe-area-inset-top)); }
   .world-stats { grid-row: auto; grid-column: auto; margin-top: 0; }

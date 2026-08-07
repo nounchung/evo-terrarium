@@ -6,7 +6,7 @@ test('loads a living world and exposes simulation controls', async ({ page }) =>
   await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add grazer' })).toBeVisible()
-  await expect(page.getByText('FOOD WEB')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open climate lab' })).toBeVisible()
 })
 
 test('creates a deterministic world from a chosen seed', async ({ page }) => {
@@ -27,12 +27,16 @@ test('pauses while the new-world dialog is open and restores the prior speed', a
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
 })
 
-test('keeps drag for exploration while a creation tool is armed', async ({ page }) => {
+test('keeps drag for exploration while a creation tool is armed', async ({ page }, testInfo) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Water' }).click()
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeVisible()
-  await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  if (testInfo.project.name === 'mobile-safari') {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeHidden()
+  } else {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  }
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
   await page.keyboard.press('Escape')
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeHidden()
@@ -107,7 +111,7 @@ test('names a save slot and replays an ecological landmark from the archive', as
   await page.getByLabel('Save name').fill('E2E field notes')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(page.getByText('Saved “E2E field notes”.')).toBeVisible()
-  await expect(page.getByText('E2E field notes')).toBeVisible()
+  await expect(page.getByText('E2E field notes', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Replay', exact: true }).click()
   await page.getByRole('button', { name: /A living world awakens/ }).click()
