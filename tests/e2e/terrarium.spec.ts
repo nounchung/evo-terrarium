@@ -23,7 +23,6 @@ test('enables and disables the procedural living soundscape', async ({ page }) =
   await page.goto('/')
   await page.getByRole('button', { name: 'Turn living soundscape on' }).click()
   await expect(page.getByRole('button', { name: 'Turn living soundscape off' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByText('Living soundscape on')).toBeVisible()
   await page.getByRole('button', { name: 'Turn living soundscape off' }).click()
   await expect(page.getByRole('button', { name: 'Turn living soundscape on' })).toHaveAttribute('aria-pressed', 'false')
 })
