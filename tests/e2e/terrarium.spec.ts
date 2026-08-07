@@ -71,7 +71,7 @@ test('opens the species codex, pauses the world and restores speed', async ({ pa
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
 })
 
-test('opens the climate lab and arms a bounded regional pressure', async ({ page }) => {
+test('opens the climate lab and arms a bounded regional pressure', async ({ page }, testInfo) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Open climate lab' }).click()
@@ -80,7 +80,11 @@ test('opens the climate lab and arms a bounded regional pressure', async ({ page
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
   await page.getByRole('button', { name: /Wildfire/ }).click()
   await expect(page.getByText('WORLD PAUSED · REGIONAL PRESSURE')).toBeVisible()
-  await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  if (testInfo.project.name === 'mobile-safari') {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeHidden()
+  } else {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  }
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
