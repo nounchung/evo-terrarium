@@ -5,10 +5,13 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
   type Biome,
+  type ClimateState,
   type Creature,
   type CreatureKind,
   type DeathCause,
   type DeathCounts,
+  type DisasterRecord,
+  type DisasterType,
   type EcosystemStatus,
   type GeneKey,
   type Genes,
@@ -28,6 +31,7 @@ const SPATIAL_CELL_SIZE = 120
 const SPECIATION_DISTANCE = 0.075
 const COMPATIBILITY_DISTANCE = 0.18
 const MAX_SPECIES_PER_KIND = 12
+const DISASTER_TYPES: DisasterType[] = ['drought', 'flood', 'disease', 'wildfire']
 
 const GENE_RANGES: Record<GeneKey, [number, number]> = {
   speed: [24, 78],
@@ -71,8 +75,39 @@ const emptyDeathCounts = (): DeathCounts => ({
   predation: 0,
   starvation: 0,
   dehydration: 0,
+  disease: 0,
+  fire: 0,
   age: 0,
 })
+
+function climateForDay(day: number, previousMoisture = 62, nextSeedEventDay = day + 24): ClimateState {
+  const seasonIndex = Math.floor(day / 7) % 4
+  const seasons = ['new-growth', 'high-sun', 'amberfall', 'long-rain'] as const
+  const baseTemperature = [18, 28, 20, 15][seasonIndex]
+  const baseRainfall = [0.55, 0.12, 0.32, 0.78][seasonIndex]
+  const dayFraction = ((day % 1) + 1) % 1
+  const daylight = clamp(0.5 - Math.cos(dayFraction * TAU) * 0.5, 0, 1)
+  const temperature = baseTemperature + Math.sin(dayFraction * TAU - Math.PI / 2) * 4
+  const rainWave = (Math.sin(day * 2.37) + Math.sin(day * 0.73 + 1.8) + 2) / 4
+  const rainfall = clamp(baseRainfall * (0.48 + rainWave), 0, 1)
+  const soilMoisture = clamp(previousMoisture + (rainfall * 2.2 - 0.72 - Math.max(0, temperature - 24) * 0.035), 8, 96)
+  const dayPhase = daylight < 0.12
+    ? 'night'
+    : dayFraction < 0.32
+      ? 'dawn'
+      : dayFraction > 0.78
+        ? 'dusk'
+        : 'day'
+  return {
+    season: seasons[seasonIndex],
+    dayPhase,
+    daylight,
+    temperature,
+    rainfall,
+    soilMoisture,
+    nextSeedEventDay,
+  }
+}
 
 const distanceSquared = (a: Point, b: Point) => {
   const dx = a.x - b.x
@@ -142,6 +177,7 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     kills: creature.kills ?? 0,
     lastAttackerId: creature.lastAttackerId ?? null,
     lastAttackTick: creature.lastAttackTick ?? -1,
+    lastHazard: creature.lastHazard ?? null,
     bornDay: creature.bornDay ?? Math.max(0, cloned.day - creature.age * 10),
     mutations: creature.mutations ?? [],
     speciesId: creature.speciesId ?? (creature.kind === 'grazer' ? 1 : 2),
@@ -200,11 +236,13 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     deathRecords: cloned.deathRecords ?? [],
     genealogy: [...genealogyById.values()],
     species,
+    climate: cloned.climate ?? climateForDay(cloned.day, 62, cloned.day + 24),
+    disasters: (cloned.disasters ?? []).map((record) => ({ ...record, recoveryNoted: record.recoveryNoted ?? false })),
     nextSpeciesId: cloned.nextSpeciesId ?? Math.max(3, ...species.map((record) => record.id + 1)),
     stats: {
       ...cloned.stats,
       kills: cloned.stats.kills ?? 0,
-      deathsByCause: cloned.stats.deathsByCause ?? emptyDeathCounts(),
+      deathsByCause: { ...emptyDeathCounts(), ...(cloned.stats.deathsByCause ?? {}) },
       averageHydration: cloned.stats.averageHydration ?? averageHydration,
       status: cloned.stats.status ?? 'balanced',
     },
@@ -242,6 +280,8 @@ export class SimulationEngine {
         deathRecords: [],
         genealogy: [],
         species: [initialSpecies('grazer'), initialSpecies('hunter')],
+        climate: climateForDay(1, 62, 24 + this.random.range(0, 10)),
+        disasters: [],
         day: 1,
         tick: 0,
         rngState: this.random.state,
@@ -443,6 +483,7 @@ export class SimulationEngine {
       kills: 0,
       lastAttackerId: null,
       lastAttackTick: -1,
+      lastHazard: null,
     }
     this.state.creatures.push(creature)
     const lineage: LineageRecord = {
@@ -686,6 +727,104 @@ export class SimulationEngine {
       detail,
     })
     this.state.events = this.state.events.slice(0, 20)
+  }
+
+  private disasterAt(point: Point, type?: DisasterType): DisasterRecord | null {
+    return this.state.disasters.find((record) =>
+      this.state.day < record.endsDay &&
+      (!type || record.type === type) &&
+      distanceSquared(point, record) <= record.radius * record.radius,
+    ) ?? null
+  }
+
+  private triggerDisaster(
+    type: DisasterType,
+    x: number,
+    y: number,
+    trigger: DisasterRecord['trigger'],
+  ): DisasterRecord {
+    const duration = type === 'drought' ? 5.5 : type === 'disease' ? 4.5 : 3.5
+    const radius = type === 'drought' ? 150 : type === 'disease' ? 125 : 110
+    const record: DisasterRecord = {
+      id: this.nextId(),
+      type,
+      x: clamp(x, radius, this.state.width - radius),
+      y: clamp(y, radius, this.state.height - radius),
+      radius,
+      intensity: this.random.range(0.72, 1),
+      startedDay: this.state.day,
+      endsDay: this.state.day + duration,
+      trigger,
+      affectedCells: 0,
+      recoveryNoted: false,
+    }
+
+    const radiusCells = Math.ceil(radius / this.state.cellSize)
+    const centerColumn = Math.floor(record.x / this.state.cellSize)
+    const centerRow = Math.floor(record.y / this.state.cellSize)
+    for (let row = centerRow - radiusCells; row <= centerRow + radiusCells; row += 1) {
+      for (let column = centerColumn - radiusCells; column <= centerColumn + radiusCells; column += 1) {
+        if (column < 0 || column >= this.state.columns || row < 0 || row >= this.state.rows) continue
+        const cellX = (column + 0.5) * this.state.cellSize
+        const cellY = (row + 0.5) * this.state.cellSize
+        if (Math.hypot(cellX - record.x, cellY - record.y) > radius) continue
+        const index = row * this.state.columns + column
+        const biome = this.state.terrain[index]
+        if (!isLand(biome)) continue
+        record.affectedCells += 1
+        if (type === 'wildfire' && biome === 'forest' && this.random.chance(0.7)) {
+          this.state.terrain[index] = 'grass'
+        }
+        if (type === 'flood' && biome === 'grass' && this.random.chance(0.35)) {
+          this.state.terrain[index] = 'meadow'
+        }
+      }
+    }
+    if (type === 'wildfire' || type === 'flood') this.state.terrainRevision += 1
+    for (const plant of this.state.plants) {
+      if (distanceSquared(plant, record) > radius * radius) continue
+      if (type === 'wildfire') plant.energy *= 0.12
+      else if (type === 'drought') plant.energy *= 0.55
+    }
+    this.state.disasters.push(record)
+    this.state.disasters = this.state.disasters.slice(-16)
+    const titles: Record<DisasterType, string> = {
+      drought: 'A regional drought begins',
+      flood: 'Floodwater reshapes a basin',
+      disease: 'Disease enters a population',
+      wildfire: 'Wildfire crosses the canopy',
+    }
+    const origin = trigger === 'player' ? 'Introduced by the world keeper.' : 'The seeded climate produced this event.'
+    this.addEvent('disaster', titles[type], `${origin} ${record.affectedCells} habitat cells are exposed.`)
+    return record
+  }
+
+  private updateClimateAndDisasters(): void {
+    this.state.climate = climateForDay(
+      this.state.day,
+      this.state.climate.soilMoisture,
+      this.state.climate.nextSeedEventDay,
+    )
+    if (this.state.day >= this.state.climate.nextSeedEventDay) {
+      const activeCount = this.state.disasters.filter((record) => this.state.day < record.endsDay).length
+      if (activeCount < 2) {
+        const point = this.landPoint() ?? { x: this.state.width / 2, y: this.state.height / 2 }
+        const type = DISASTER_TYPES[this.random.integer(0, DISASTER_TYPES.length - 1)]
+        this.triggerDisaster(type, point.x, point.y, 'seed')
+      }
+      this.state.climate.nextSeedEventDay = this.state.day + this.random.range(24, 38)
+    }
+    for (const record of this.state.disasters) {
+      if (record.recoveryNoted || this.state.day < record.endsDay) continue
+      record.recoveryNoted = true
+      const details: Record<DisasterType, string> = {
+        drought: 'Rain and soil moisture can now rebuild the depleted plant base.',
+        flood: 'The water has receded, leaving richer meadow patches behind.',
+        disease: 'Transmission has ended; surviving lineages can reproduce again.',
+        wildfire: 'The burn front is out, but cleared forest remains open grassland.',
+      }
+      this.addEvent('recovery', `${record.type[0].toUpperCase()}${record.type.slice(1)} recovery begins`, details[record.type])
+    }
   }
 
   private randomTarget(creature: Creature): void {
@@ -939,6 +1078,8 @@ export class SimulationEngine {
     ) {
       return 'predation'
     }
+    if (creature.health <= 0 && creature.lastHazard === 'wildfire') return 'fire'
+    if (creature.health <= 0 && creature.lastHazard === 'disease') return 'disease'
     if (creature.energy <= 0 || (creature.health <= 0 && creature.energy < 18)) {
       return 'starvation'
     }
@@ -983,6 +1124,14 @@ export class SimulationEngine {
         'Water shapes survival',
         `${creature.species} #${creature.id} died before reaching a shoreline.`,
       ],
+      disease: [
+        'Disease changes the population',
+        `${creature.species} #${creature.id} did not survive a regional outbreak.`,
+      ],
+      fire: [
+        'Wildfire claims a life',
+        `${creature.species} #${creature.id} was caught inside the burn front.`,
+      ],
       age: [
         'A natural lifetime ends',
         `${creature.species} #${creature.id} reached age ${creature.age.toFixed(1)}.`,
@@ -995,6 +1144,7 @@ export class SimulationEngine {
     this.state.tick += 1
     this.state.day += delta * 0.12
     this.wildGrowthTimer += delta
+    this.updateClimateAndDisasters()
 
     const plantBuckets = buildBuckets(this.state.plants, SPATIAL_CELL_SIZE)
     for (const plant of this.state.plants) {
@@ -1005,10 +1155,22 @@ export class SimulationEngine {
         SPATIAL_CELL_SIZE,
       ).length
       const competitionFactor = Math.max(0.28, 1 - Math.max(0, competitors - 2) * 0.09)
+      const drought = this.disasterAt(plant, 'drought')
+      const flood = this.disasterAt(plant, 'flood')
+      const wildfire = this.disasterAt(plant, 'wildfire')
+      const moistureFactor = clamp(this.state.climate.soilMoisture / 58, 0.28, 1.28)
+      const seasonFactor = this.state.climate.season === 'high-sun'
+        ? 0.76
+        : this.state.climate.season === 'long-rain'
+          ? 1.18
+          : 1
+      const disasterFactor = drought ? 0.16 : flood ? 0.48 : wildfire ? 0.05 : 1
       plant.energy = Math.min(
         plant.maxEnergy,
-        plant.energy + plant.growthRate * competitionFactor * delta,
+        plant.energy + plant.growthRate * competitionFactor * moistureFactor * seasonFactor * disasterFactor * delta,
       )
+      if (drought) plant.energy = Math.max(0, plant.energy - delta * 0.34 * drought.intensity)
+      if (wildfire) plant.energy = Math.max(0, plant.energy - delta * 4.2 * wildfire.intensity)
     }
     if (this.wildGrowthTimer > 1.5 && this.state.plants.length < MAX_PLANTS) {
       this.wildGrowthTimer = 0
@@ -1021,6 +1183,7 @@ export class SimulationEngine {
     const waterBuckets = buildBuckets(this.waterSources, SPATIAL_CELL_SIZE)
 
     for (const creature of this.state.creatures) {
+      creature.lastHazard = null
       creature.age += delta * 0.1
       creature.reproductionCooldown = Math.max(0, creature.reproductionCooldown - delta)
       creature.attackCooldown = Math.max(0, creature.attackCooldown - delta)
@@ -1029,8 +1192,24 @@ export class SimulationEngine {
         creature.genes.metabolism * delta * movementCost * (0.7 + creature.genes.size * 0.3)
       const hydrationCost =
         creature.behaviour === 'rest' ? 0.18 : creature.behaviour === 'flee' ? 0.48 : 0.3
+      const heatFactor = 1 + Math.max(0, this.state.climate.temperature - 24) * 0.035
       creature.hydration -=
-        creature.genes.metabolism * delta * hydrationCost * (0.76 + creature.genes.size * 0.24)
+        creature.genes.metabolism * delta * hydrationCost * heatFactor * (0.76 + creature.genes.size * 0.24)
+      const drought = this.disasterAt(creature, 'drought')
+      const flood = this.disasterAt(creature, 'flood')
+      const disease = this.disasterAt(creature, 'disease')
+      const wildfire = this.disasterAt(creature, 'wildfire')
+      if (drought) creature.hydration -= delta * 0.38 * drought.intensity
+      if (flood) creature.energy -= delta * 0.18 * flood.intensity
+      if (disease) {
+        creature.health -= delta * 0.62 * disease.intensity
+        creature.reproductionCooldown += delta * 0.24
+        creature.lastHazard = 'disease'
+      }
+      if (wildfire) {
+        creature.health -= delta * 2.4 * wildfire.intensity
+        creature.lastHazard = 'wildfire'
+      }
       if (creature.energy < 18) creature.health -= delta * 3.1
       if (creature.hydration < 16) creature.health -= delta * 3.6
       if (creature.energy >= 28 && creature.hydration >= 28) {
@@ -1151,6 +1330,11 @@ export class SimulationEngine {
   applyWorldAction(action: string, x: number, y: number, radius = 52): void {
     this.undoStack.push(this.snapshot())
     if (this.undoStack.length > 12) this.undoStack.shift()
+    if (DISASTER_TYPES.includes(action as DisasterType)) {
+      this.triggerDisaster(action as DisasterType, x, y, 'player')
+      this.updateStats()
+      return
+    }
     if (action === 'plant') {
       for (let index = 0; index < 5; index += 1) {
         this.spawnPlant({ x: x + this.random.range(-radius, radius), y: y + this.random.range(-radius, radius) })

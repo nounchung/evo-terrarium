@@ -127,19 +127,23 @@ describe('SimulationEngine', () => {
 
   it('adds R1 lifecycle fields when restoring an R0 snapshot', () => {
     const saved = new SimulationEngine('LEGACY-1180').snapshot()
-    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId'> & {
+    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId' | 'climate' | 'disasters'> & {
       creatures: Array<Partial<Creature>>
       stats: Partial<WorldState['stats']>
       deathRecords?: WorldState['deathRecords']
       genealogy?: WorldState['genealogy']
       species?: WorldState['species']
       nextSpeciesId?: number
+      climate?: WorldState['climate']
+      disasters?: WorldState['disasters']
     }
     const legacy = structuredClone(saved) as unknown as LegacySnapshot
     delete legacy.deathRecords
     delete legacy.genealogy
     delete legacy.species
     delete legacy.nextSpeciesId
+    delete legacy.climate
+    delete legacy.disasters
     delete legacy.stats.deathsByCause
     delete legacy.stats.averageHydration
     delete legacy.stats.status
@@ -154,6 +158,7 @@ describe('SimulationEngine', () => {
       delete creature.bornDay
       delete creature.mutations
       delete creature.speciesId
+      delete creature.lastHazard
     }
 
     const restored = new SimulationEngine(
@@ -171,8 +176,12 @@ describe('SimulationEngine', () => {
       predation: 0,
       starvation: 0,
       dehydration: 0,
+      disease: 0,
+      fire: 0,
       age: 0,
     })
+    expect(restored.climate.season).toBeDefined()
+    expect(restored.disasters).toEqual([])
   })
 
   it('applies player terrain and creature actions', () => {
@@ -261,5 +270,42 @@ describe('SimulationEngine', () => {
     expect(emerged[0].population).toBeGreaterThan(0)
     expect(first.events.some((event) => event.kind === 'speciation')).toBe(true)
     expect(second.species).toEqual(first.species)
+  })
+
+  it('keeps climate and seed-driven disasters deterministic', () => {
+    const run = () => {
+      const engine = new SimulationEngine('CLIMATE-4402')
+      engine.state.climate.nextSeedEventDay = engine.state.day + 0.01
+      for (let step = 0; step < 20; step += 1) engine.step(0.05)
+      return engine.snapshot()
+    }
+
+    const first = run()
+    const second = run()
+    expect(first.climate).toEqual(second.climate)
+    expect(first.disasters).toEqual(second.disasters)
+    expect(first.disasters[0]).toMatchObject({ trigger: 'seed', recoveryNoted: false })
+  })
+
+  it('applies bounded regional pressure and records recovery', () => {
+    const engine = new SimulationEngine('WILDFIRE-3301')
+    const subject = engine.state.creatures[0]
+    const distant = engine.state.creatures.find((creature) => {
+      const dx = creature.x - subject.x
+      const dy = creature.y - subject.y
+      return dx * dx + dy * dy > 350 * 350
+    })!
+    const distantHealth = distant.health
+
+    engine.applyWorldAction('wildfire', subject.x, subject.y)
+    const disaster = engine.state.disasters.at(-1)!
+    expect(disaster).toMatchObject({ type: 'wildfire', trigger: 'player', radius: 110 })
+    expect(disaster.affectedCells).toBeGreaterThan(0)
+    for (let step = 0; step < 320; step += 1) engine.step(0.1)
+
+    expect(distant.health).toBeGreaterThanOrEqual(distantHealth)
+    expect(disaster.recoveryNoted).toBe(true)
+    expect(engine.state.events.some((event) => event.kind === 'recovery')).toBe(true)
+    expect(engine.state.disasters.length).toBeLessThanOrEqual(16)
   })
 })

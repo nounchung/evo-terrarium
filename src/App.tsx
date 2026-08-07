@@ -3,9 +3,11 @@ import './App.css'
 import { WorldCanvas } from './components/WorldCanvas'
 import { LineagePanel } from './components/LineagePanel'
 import { SpeciesCodex } from './components/SpeciesCodex'
+import { ClimatePanel } from './components/ClimatePanel'
 import { loadWorld, saveWorld } from './simulation/storage'
 import type {
   CreationTool,
+  DisasterType,
   SimSpeed,
   WorkerCommand,
   WorkerMessage,
@@ -66,6 +68,16 @@ const TOOLS: Array<{ id: CreationTool; label: string; icon: IconName; tone?: str
   { id: 'hunter', label: 'Add hunter', icon: 'hunter', tone: 'hunter' },
 ]
 
+const DISASTER_TOOL_META: Record<DisasterType, { id: DisasterType; label: string; icon: IconName; tone: string }> = {
+  drought: { id: 'drought', label: 'Place drought', icon: 'spark', tone: 'drought' },
+  flood: { id: 'flood', label: 'Release flood', icon: 'water', tone: 'flood' },
+  disease: { id: 'disease', label: 'Start disease', icon: 'spark', tone: 'disease' },
+  wildfire: { id: 'wildfire', label: 'Ignite wildfire', icon: 'forest', tone: 'wildfire' },
+}
+
+const toolMeta = (tool: CreationTool) => TOOLS.find((item) => item.id === tool)
+  ?? DISASTER_TOOL_META[tool as DisasterType]
+
 const SPEEDS: SimSpeed[] = [0, 1, 5, 20, 100]
 
 function makeSeed(): string {
@@ -101,6 +113,7 @@ function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [lineageOpen, setLineageOpen] = useState(false)
   const [speciesOpen, setSpeciesOpen] = useState(false)
+  const [climateOpen, setClimateOpen] = useState(false)
   const [selectedSpeciesId, setSelectedSpeciesId] = useState(1)
   const [seedDialog, setSeedDialog] = useState(false)
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
@@ -181,6 +194,7 @@ function App() {
     setSelectedId(null)
     setLineageOpen(false)
     setSpeciesOpen(false)
+    setClimateOpen(false)
     setTool('inspect')
     setSeedDialog(false)
     send({ type: 'reset', seed: nextSeed })
@@ -196,6 +210,7 @@ function App() {
     setTool('inspect')
     setLineageOpen(false)
     setSpeciesOpen(false)
+    setClimateOpen(false)
     setSeedDialog(true)
     changeSpeed(0)
   }
@@ -213,6 +228,7 @@ function App() {
       changeSpeed(0)
     }
     setSpeciesOpen(false)
+    setClimateOpen(false)
     setSelectedId(id)
     setLineageOpen(true)
   }
@@ -228,6 +244,7 @@ function App() {
       ? lineageReturnSpeedRef.current
       : tool === 'inspect' ? speed : toolReturnSpeedRef.current
     setLineageOpen(false)
+    setClimateOpen(false)
     setTool('inspect')
     const newestLiving = [...(worldRef.current?.species ?? [])]
       .filter((record) => record.population > 0)
@@ -247,6 +264,7 @@ function App() {
       : lineageOpen ? lineageReturnSpeedRef.current : speed
     setLineageOpen(false)
     setSpeciesOpen(false)
+    setClimateOpen(false)
     if (nextTool === 'inspect') {
       if (tool !== 'inspect') finishCreation()
       return
@@ -262,6 +280,7 @@ function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (seedDialog) closeSeedDialog()
+      else if (climateOpen) setClimateOpen(false)
       else if (speciesOpen) {
         setSpeciesOpen(false)
         changeSpeed(speciesReturnSpeedRef.current)
@@ -278,7 +297,19 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [lineageOpen, seedDialog, selectedId, speciesOpen, tool])
+  }, [climateOpen, lineageOpen, seedDialog, selectedId, speciesOpen, tool])
+  const openClimate = () => {
+    const returnSpeed = speciesOpen
+      ? speciesReturnSpeedRef.current
+      : lineageOpen
+        ? lineageReturnSpeedRef.current
+        : tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    setLineageOpen(false)
+    setSpeciesOpen(false)
+    setTool('inspect')
+    setClimateOpen(true)
+    changeSpeed(returnSpeed)
+  }
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void document.documentElement.requestFullscreen?.()
@@ -286,8 +317,8 @@ function App() {
 
   const year = world ? Math.max(1, Math.floor(world.day / 28) + 1) : 1
   const day = world ? Math.max(1, Math.floor(world.day % 28) + 1) : 1
-  const seasonNames = ['New Growth', 'High Sun', 'Amberfall', 'Long Rain']
-  const season = world ? seasonNames[Math.floor(world.day / 7) % seasonNames.length] : 'New Growth'
+  const seasonLabels = { 'new-growth': 'New Growth', 'high-sun': 'High Sun', amberfall: 'Amberfall', 'long-rain': 'Long Rain' }
+  const season = world ? seasonLabels[world.climate.season] : 'New Growth'
   const population = (world?.stats.grazers ?? 0) + (world?.stats.hunters ?? 0)
   const foodWebLabel = world?.stats.status ?? 'balanced'
   const livingSpecies = world?.species.filter((record) => record.population > 0).length ?? 0
@@ -372,10 +403,10 @@ function App() {
         <div><small>SEASON</small><strong>{season}</strong></div>
         <i/>
         <div className={`food-web ${foodWebLabel}`}><small>FOOD WEB</small><strong>{foodWebLabel}</strong></div>
-        <span className="weather-orb" aria-hidden="true"/>
+        <button className={`weather-orb ${world?.climate.dayPhase ?? 'day'}`} type="button" onClick={openClimate} aria-label="Open climate lab"><span>{world ? `${world.climate.temperature.toFixed(0)}°` : '—'}</span></button>
       </section>
 
-      {!lineageOpen && !speciesOpen && <aside className="event-feed" aria-label="Recent world events">
+      {!lineageOpen && !speciesOpen && !climateOpen && <aside className="event-feed" aria-label="Recent world events">
         {(world?.events ?? []).slice(0, 3).map((event, index) => (
           <article key={event.id} className={`event-card glass ${index > 1 ? 'minor' : ''}`}>
             <span className={`event-symbol ${event.kind}`}><Icon name={event.kind === 'death' ? 'hunter' : event.kind === 'player' ? 'seed' : 'spark'} size={15}/></span>
@@ -384,7 +415,7 @@ function App() {
         ))}
       </aside>}
 
-      {selected && !lineageOpen && !speciesOpen && (
+      {selected && !lineageOpen && !speciesOpen && !climateOpen && (
         <aside className="creature-card glass" aria-label="Selected creature details">
           <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
@@ -441,6 +472,14 @@ function App() {
         />
       )}
 
+      {climateOpen && world && (
+        <ClimatePanel
+          world={world}
+          onClose={() => setClimateOpen(false)}
+          onTrigger={(type) => chooseTool(type)}
+        />
+      )}
+
       <section className="time-controls glass" aria-label="Simulation speed">
         {SPEEDS.map((value) => (
           <button key={value} type="button" className={speed === value ? 'active' : ''} onClick={() => changeSpeed(value)} aria-label={value === 0 ? 'Pause simulation' : `Run at ${value} times speed`}>
@@ -453,8 +492,8 @@ function App() {
 
       {tool !== 'inspect' && (
         <section className="tool-status glass" role="status" aria-live="polite">
-          <span className={`tool-swatch ${tool}`}><Icon name={TOOLS.find((item) => item.id === tool)?.icon ?? 'cursor'} size={16}/></span>
-          <div><small>WORLD PAUSED · CREATION TOOL</small><strong>{TOOLS.find((item) => item.id === tool)?.label}</strong><p>Tap to apply · Drag to explore · Esc to finish</p></div>
+          <span className={`tool-swatch ${tool}`}><Icon name={toolMeta(tool)?.icon ?? 'cursor'} size={16}/></span>
+          <div><small>WORLD PAUSED · {DISASTER_TOOL_META[tool as DisasterType] ? 'REGIONAL PRESSURE' : 'CREATION TOOL'}</small><strong>{toolMeta(tool)?.label}</strong><p>Tap to apply · Drag to explore · Esc to finish</p></div>
           <button type="button" onClick={() => send({ type: 'undo' })} disabled={!canUndo} aria-label="Undo last world change"><Icon name="undo" size={16}/><span>Undo</span></button>
           <button type="button" onClick={finishCreation}>Done</button>
         </section>

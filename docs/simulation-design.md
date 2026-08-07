@@ -1,7 +1,7 @@
 # Simulation Design Spec
 
-Status: R3 speciation foundation, version 4
-Decision: R1 Design Gate approved; R2 inheritance and R3 deterministic species tracking implemented
+Status: R4 environmental pressure foundation, version 5
+Decision: R1 Design Gate approved; inheritance, species tracking and deterministic climate pressure implemented
 
 ## 1. Experience contract
 
@@ -108,7 +108,20 @@ Reproductive compatibility uses normalized genetic distance. From generation fiv
 
 World schema version `1` remains stored in IndexedDB. R1 normalises R0 snapshots by adding hydration, combat and death-ledger defaults so existing local worlds continue safely. Future incompatible changes require explicit migration functions; UI-only state such as open panels is not persisted.
 
-## 10. Test strategy
+## 10. Climate and regional pressure
+
+Temperature, rainfall, soil moisture, daylight and season are deterministic functions of simulation day. They continuously change plant growth and animal hydration costs. A seed schedules bounded regional events on the same serialized random stream used by the rest of the world.
+
+| Event | Active pressure | Recovery / lasting result |
+| --- | --- | --- |
+| Drought | Plant growth and animal hydration | Soil moisture and plant energy rebuild gradually |
+| Flood | Movement energy and plant growth | Some grass becomes productive meadow |
+| Disease | Health loss and reproduction delay | Transmission ends; surviving lineages resume reproduction |
+| Wildfire | Rapid plant and animal health damage | Burned forest remains open grassland |
+
+Player-placed events use the same rules as seed events, pause while positioning, affect a visible radius and can be undone. At most sixteen recent disaster records are retained and no more than two seed events are active at once.
+
+## 11. Test strategy
 
 - Same-seed equality for terrain and initial entities
 - Three fixed Seeds complete twenty simulated minutes with both trophic levels alive and within caps

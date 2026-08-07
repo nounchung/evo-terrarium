@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Application, Container, Graphics } from 'pixi.js'
-import type { CreationTool, Creature, WorldState } from '../simulation/types'
+import type { CreationTool, Creature, DisasterType, WorldState } from '../simulation/types'
 
 interface WorldCanvasProps {
   world: WorldState | null
@@ -34,8 +34,15 @@ function drawBrushPreview(
 ): void {
   runtime.brush.clear()
   if (tool === 'inspect' || !point) return
-  const radius = tool === 'grazer' || tool === 'hunter' ? 24 : 58
-  const colour = tool === 'water' ? 0x9edbd4 : tool === 'hunter' ? 0xe18c70 : 0xe2e1a7
+  const disaster = ['drought', 'flood', 'disease', 'wildfire'].includes(tool)
+  const radius = tool === 'grazer' || tool === 'hunter' ? 24 : disaster ? (tool === 'drought' ? 150 : tool === 'disease' ? 125 : 110) : 58
+  const colour = tool === 'water' || tool === 'flood'
+    ? 0x9edbd4
+    : tool === 'hunter' || tool === 'wildfire'
+      ? 0xe18c70
+      : tool === 'disease'
+        ? 0xd09edb
+        : 0xe2e1a7
   runtime.brush
     .circle(point.x, point.y, radius)
     .fill({ color: colour, alpha: 0.1 })
@@ -277,6 +284,38 @@ function drawCreatures(
   }
 }
 
+const DISASTER_COLOURS: Record<DisasterType, number> = {
+  drought: 0xd8b66b,
+  flood: 0x73b9c2,
+  disease: 0xbd86ca,
+  wildfire: 0xdc7258,
+}
+
+function drawAtmosphere(graphic: Graphics, world: WorldState): void {
+  graphic.clear()
+  const nightAlpha = Math.max(0, 0.28 - world.climate.daylight * 0.27)
+  graphic.rect(0, 0, world.width, world.height).fill({ color: 0x06131e, alpha: nightAlpha })
+  if (world.climate.temperature > 27) {
+    graphic.rect(0, 0, world.width, world.height).fill({ color: 0x7a2e19, alpha: Math.min(0.08, (world.climate.temperature - 27) * 0.012) })
+  }
+  if (world.climate.rainfall > 0.62) {
+    const rainAlpha = (world.climate.rainfall - 0.62) * 0.3
+    for (let index = 0; index < 44; index += 1) {
+      const x = (index * 193 + world.tick * 0.7) % world.width
+      const y = (index * 97 + world.tick * 1.6) % world.height
+      graphic.moveTo(x, y).lineTo(x - 5, y + 13).stroke({ color: 0xb4d8d1, width: 1.1, alpha: rainAlpha })
+    }
+  }
+  for (const record of world.disasters) {
+    if (world.day >= record.endsDay) continue
+    const colour = DISASTER_COLOURS[record.type]
+    const progress = (world.day - record.startedDay) / Math.max(0.1, record.endsDay - record.startedDay)
+    graphic.circle(record.x, record.y, record.radius).fill({ color: colour, alpha: 0.055 + record.intensity * 0.055 })
+    graphic.circle(record.x, record.y, record.radius).stroke({ color: colour, width: 3, alpha: 0.7 })
+    graphic.circle(record.x, record.y, record.radius * (0.38 + progress * 0.5)).stroke({ color: colour, width: 1.5, alpha: 0.32 })
+  }
+}
+
 function fitCamera(runtime: CanvasRuntime, world: WorldState): void {
   const { app, viewport } = runtime
   const portrait = app.screen.height > app.screen.width * 1.18
@@ -501,11 +540,7 @@ export function WorldCanvas({
     if (runtime.terrainRevision !== world.terrainRevision) drawTerrain(runtime, world)
     drawPlants(runtime.plants, world)
     drawCreatures(runtime.creatures, world, selectedId)
-    const daylight = (Math.sin(world.day * Math.PI * 0.2) + 1) / 2
-    runtime.atmosphere.clear()
-    runtime.atmosphere
-      .rect(0, 0, world.width, world.height)
-      .fill({ color: 0x06161e, alpha: Math.max(0, 0.17 - daylight * 0.14) })
+    drawAtmosphere(runtime.atmosphere, world)
   }, [selectedId, world])
 
   return <div className="world-canvas" ref={hostRef} />
