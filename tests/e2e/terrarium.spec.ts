@@ -69,7 +69,7 @@ test('enables and disables the procedural living soundscape', async ({ page }) =
 
 test('loads a living world and exposes simulation controls', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByText('EvoTerrarium')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create a new world' })).toBeVisible()
   await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add grazer' })).toBeVisible()
