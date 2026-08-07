@@ -4,13 +4,15 @@ export const CELL_SIZE = 40
 
 export type Biome = 'deep-water' | 'water' | 'meadow' | 'grass' | 'forest'
 export type CreatureKind = 'grazer' | 'hunter'
-export type Behaviour = 'wander' | 'forage' | 'drink' | 'flee' | 'hunt' | 'mate' | 'rest'
+export type Behaviour = 'wander' | 'forage' | 'drink' | 'flee' | 'hunt' | 'mate' | 'rest' | 'regroup' | 'patrol' | 'migrate'
 export type SimSpeed = 0 | 1 | 5 | 20 | 100
 export type DeathCause = 'predation' | 'starvation' | 'dehydration' | 'disease' | 'fire' | 'age'
 export type EcosystemStatus = 'balanced' | 'stressed' | 'fragile'
 export type Season = 'new-growth' | 'high-sun' | 'amberfall' | 'long-rain'
 export type DayPhase = 'dawn' | 'day' | 'dusk' | 'night'
 export type DisasterType = 'drought' | 'flood' | 'disease' | 'wildfire'
+export type MemoryKind = 'food' | 'water' | 'threat' | 'shelter'
+export type MigrationReason = 'resources' | 'climate' | 'threat'
 
 export interface Point {
   x: number
@@ -34,6 +36,12 @@ export interface MutationRecord {
   value: number
   changePercent: number
   significant: boolean
+}
+
+export interface SpatialMemory extends Point {
+  kind: MemoryKind
+  recordedDay: number
+  strength: number
 }
 
 export interface Creature extends Point {
@@ -65,6 +73,9 @@ export interface Creature extends Point {
   lastAttackerId: number | null
   lastAttackTick: number
   lastHazard: DisasterType | null
+  groupId: number | null
+  territoryId: number | null
+  memory: SpatialMemory[]
 }
 
 export interface Plant extends Point {
@@ -78,7 +89,7 @@ export interface Plant extends Point {
 export interface WorldEvent {
   id: number
   day: number
-  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player' | 'speciation' | 'disaster' | 'recovery'
+  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player' | 'speciation' | 'disaster' | 'recovery' | 'social' | 'migration'
   title: string
   detail: string
 }
@@ -139,6 +150,35 @@ export interface DisasterRecord extends Point {
   recoveryNoted: boolean
 }
 
+export interface GroupRecord extends Point {
+  id: number
+  kind: CreatureKind
+  name: string
+  memberIds: number[]
+  leaderId: number
+  radius: number
+  formedDay: number
+}
+
+export interface TerritoryRecord extends Point {
+  id: number
+  groupId: number
+  kind: CreatureKind
+  radius: number
+  claimedDay: number
+  pressure: number
+}
+
+export interface MigrationRecord {
+  id: number
+  groupId: number
+  reason: MigrationReason
+  from: Point
+  to: Point
+  startedDay: number
+  completedDay: number | null
+}
+
 export interface DeathRecord {
   creatureId: number
   species: string
@@ -183,6 +223,9 @@ export interface WorldState {
   species: SpeciesRecord[]
   climate: ClimateState
   disasters: DisasterRecord[]
+  groups: GroupRecord[]
+  territories: TerritoryRecord[]
+  migrations: MigrationRecord[]
   day: number
   tick: number
   rngState: number

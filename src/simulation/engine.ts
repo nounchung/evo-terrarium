@@ -15,11 +15,15 @@ import {
   type EcosystemStatus,
   type GeneKey,
   type Genes,
+  type GroupRecord,
   type LineageRecord,
+  type MemoryKind,
+  type MigrationReason,
   type MutationRecord,
   type Plant,
   type Point,
   type SpeciesRecord,
+  type SpatialMemory,
   type WorldEvent,
   type WorldState,
 } from './types'
@@ -178,6 +182,9 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     lastAttackerId: creature.lastAttackerId ?? null,
     lastAttackTick: creature.lastAttackTick ?? -1,
     lastHazard: creature.lastHazard ?? null,
+    groupId: creature.groupId ?? null,
+    territoryId: creature.territoryId ?? null,
+    memory: creature.memory ?? [],
     bornDay: creature.bornDay ?? Math.max(0, cloned.day - creature.age * 10),
     mutations: creature.mutations ?? [],
     speciesId: creature.speciesId ?? (creature.kind === 'grazer' ? 1 : 2),
@@ -238,6 +245,9 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     species,
     climate: cloned.climate ?? climateForDay(cloned.day, 62, cloned.day + 24),
     disasters: (cloned.disasters ?? []).map((record) => ({ ...record, recoveryNoted: record.recoveryNoted ?? false })),
+    groups: cloned.groups ?? [],
+    territories: cloned.territories ?? [],
+    migrations: cloned.migrations ?? [],
     nextSpeciesId: cloned.nextSpeciesId ?? Math.max(3, ...species.map((record) => record.id + 1)),
     stats: {
       ...cloned.stats,
@@ -282,6 +292,9 @@ export class SimulationEngine {
         species: [initialSpecies('grazer'), initialSpecies('hunter')],
         climate: climateForDay(1, 62, 24 + this.random.range(0, 10)),
         disasters: [],
+        groups: [],
+        territories: [],
+        migrations: [],
         day: 1,
         tick: 0,
         rngState: this.random.state,
@@ -484,6 +497,9 @@ export class SimulationEngine {
       lastAttackerId: null,
       lastAttackTick: -1,
       lastHazard: null,
+      groupId: null,
+      territoryId: null,
+      memory: [],
     }
     this.state.creatures.push(creature)
     const lineage: LineageRecord = {
@@ -827,6 +843,219 @@ export class SimulationEngine {
     }
   }
 
+  private remember(creature: Creature, kind: MemoryKind, point: Point): void {
+    creature.memory = creature.memory.filter((memory) => this.state.day - memory.recordedDay < 8)
+    const existing = creature.memory.find((memory) =>
+      memory.kind === kind && distanceSquared(memory, point) < 70 * 70,
+    )
+    if (existing) {
+      existing.x = point.x
+      existing.y = point.y
+      existing.recordedDay = this.state.day
+      existing.strength = 1
+    } else {
+      creature.memory.push({ kind, x: point.x, y: point.y, recordedDay: this.state.day, strength: 1 })
+    }
+    creature.memory = creature.memory
+      .sort((first, second) => second.recordedDay - first.recordedDay)
+      .slice(0, 6)
+  }
+
+  private recalled(creature: Creature, kind: MemoryKind): SpatialMemory | null {
+    const memory = creature.memory
+      .filter((record) => record.kind === kind && this.state.day - record.recordedDay < 8)
+      .sort((first, second) => second.recordedDay - first.recordedDay)[0]
+    if (!memory) return null
+    memory.strength = clamp(1 - (this.state.day - memory.recordedDay) / 8, 0, 1)
+    return memory
+  }
+
+  private activeMigration(groupId: number) {
+    return [...this.state.migrations].reverse().find(
+      (record) => record.groupId === groupId && record.completedDay === null,
+    ) ?? null
+  }
+
+  private followGroupDirective(creature: Creature): boolean {
+    if (creature.groupId === null) return false
+    const group = this.state.groups.find((record) => record.id === creature.groupId)
+    if (!group) return false
+    const migration = this.activeMigration(group.id)
+    if (migration && creature.energy > 34 && creature.hydration > 34) {
+      creature.targetX = migration.to.x
+      creature.targetY = migration.to.y
+      creature.behaviour = 'migrate'
+      return true
+    }
+    const distanceFromGroup = Math.sqrt(distanceSquared(creature, group))
+    if (distanceFromGroup > Math.max(82, group.radius * 1.4)) {
+      creature.targetX = group.x
+      creature.targetY = group.y
+      creature.behaviour = 'regroup'
+      return true
+    }
+    const territory = creature.territoryId === null
+      ? null
+      : this.state.territories.find((record) => record.id === creature.territoryId)
+    if (territory && distanceSquared(creature, territory) > (territory.radius * 0.78) ** 2) {
+      creature.targetX = territory.x
+      creature.targetY = territory.y
+      creature.behaviour = 'patrol'
+      return true
+    }
+    return false
+  }
+
+  private migrationScore(group: GroupRecord, point: Point): number {
+    const biome = biomeAt(this.state.terrain, this.state.columns, this.state.rows, point.x, point.y)
+    if (!isLand(biome)) return -Infinity
+    const hazardPenalty = this.disasterAt(point) ? 18 : 0
+    if (group.kind === 'grazer') {
+      const plants = this.state.plants.reduce((total, plant) =>
+        total + (plant.energy > 18 && distanceSquared(plant, point) < 190 * 190 ? 1 : 0), 0)
+      const hunters = this.state.creatures.reduce((total, creature) =>
+        total + (creature.kind === 'hunter' && distanceSquared(creature, point) < 180 * 180 ? 1 : 0), 0)
+      return plants - hunters * 3 - hazardPenalty
+    }
+    const prey = this.state.creatures.reduce((total, creature) =>
+      total + (creature.kind === 'grazer' && distanceSquared(creature, point) < 220 * 220 ? 1 : 0), 0)
+    const rivals = this.state.creatures.reduce((total, creature) =>
+      total + (creature.kind === 'hunter' && creature.groupId !== group.id && distanceSquared(creature, point) < 180 * 180 ? 1 : 0), 0)
+    return prey * 1.2 - rivals * 1.5 - hazardPenalty
+  }
+
+  private migrationDestination(group: GroupRecord): Point | null {
+    const currentScore = this.migrationScore(group, group)
+    const candidates: Point[] = []
+    for (const radius of [220, 340]) {
+      for (let index = 0; index < 8; index += 1) {
+        const angle = (index / 8) * TAU
+        candidates.push({
+          x: clamp(group.x + Math.cos(angle) * radius, 20, this.state.width - 20),
+          y: clamp(group.y + Math.sin(angle) * radius, 20, this.state.height - 20),
+        })
+      }
+    }
+    const ranked = candidates
+      .map((point) => ({ point, score: this.migrationScore(group, point) }))
+      .sort((first, second) => second.score - first.score)
+    return ranked[0] && ranked[0].score > currentScore + 3 ? ranked[0].point : null
+  }
+
+  private updateSocialStructures(): void {
+    const livingIds = new Set(this.state.creatures.map((creature) => creature.id))
+    for (const group of this.state.groups) {
+      const maxSpread = this.activeMigration(group.id) ? 360 : group.kind === 'grazer' ? 230 : 280
+      group.memberIds = group.memberIds.filter((id) => {
+        if (!livingIds.has(id)) return false
+        const member = this.state.creatures.find((creature) => creature.id === id)
+        return Boolean(member && distanceSquared(member, group) <= maxSpread * maxSpread)
+      })
+    }
+    const retainedGroups: GroupRecord[] = []
+    for (const group of this.state.groups) {
+      const minimum = group.kind === 'grazer' ? 3 : 2
+      if (group.memberIds.length >= minimum) retainedGroups.push(group)
+      else {
+        for (const creature of this.state.creatures) {
+          if (creature.groupId === group.id) {
+            creature.groupId = null
+            creature.territoryId = null
+          }
+        }
+      }
+    }
+    this.state.groups = retainedGroups
+    this.state.territories = this.state.territories.filter((territory) =>
+      this.state.groups.some((group) => group.id === territory.groupId),
+    )
+
+    for (const kind of ['grazer', 'hunter'] as CreatureKind[]) {
+      const ungrouped = this.state.creatures
+        .filter((creature) => creature.kind === kind && creature.groupId === null)
+        .sort((first, second) => first.id - second.id)
+      const formationRadius = kind === 'grazer' ? 135 : 180
+      const minimum = kind === 'grazer' ? 3 : 2
+      while (ungrouped.length >= minimum && this.state.groups.length < 24) {
+        const anchor = ungrouped.shift()!
+        if (anchor.groupId !== null) continue
+        const neighbours = ungrouped.filter((candidate) =>
+          candidate.groupId === null && distanceSquared(anchor, candidate) <= formationRadius * formationRadius,
+        ).slice(0, kind === 'grazer' ? 7 : 4)
+        if (neighbours.length + 1 < minimum) continue
+        const members = [anchor, ...neighbours]
+        const id = this.nextId()
+        const group: GroupRecord = {
+          id,
+          kind,
+          name: kind === 'grazer' ? `Meadow herd ${id}` : `Ember pack ${id}`,
+          memberIds: members.map((member) => member.id),
+          leaderId: members[0].id,
+          x: anchor.x,
+          y: anchor.y,
+          radius: 0,
+          formedDay: this.state.day,
+        }
+        for (const member of members) member.groupId = id
+        this.state.groups.push(group)
+        this.addEvent('social', `${group.name} has formed`, `${members.length} ${kind === 'grazer' ? 'grazers now use local herd cohesion' : 'hunters now share a territorial pack'}.`)
+      }
+    }
+
+    for (const group of this.state.groups) {
+      const members = this.state.creatures.filter((creature) => group.memberIds.includes(creature.id))
+      if (members.length === 0) continue
+      group.x = members.reduce((total, member) => total + member.x, 0) / members.length
+      group.y = members.reduce((total, member) => total + member.y, 0) / members.length
+      group.radius = members.reduce((largest, member) => Math.max(largest, Math.sqrt(distanceSquared(member, group))), 0)
+      group.leaderId = [...members].sort((first, second) => second.energy - first.energy || first.id - second.id)[0].id
+      let territory = this.state.territories.find((record) => record.groupId === group.id)
+      if (group.kind === 'hunter' && !territory) {
+        territory = { id: this.nextId(), groupId: group.id, kind: group.kind, x: group.x, y: group.y, radius: 185, claimedDay: this.state.day, pressure: 0 }
+        this.state.territories.push(territory)
+      }
+      if (territory) {
+        territory.x += (group.x - territory.x) * 0.08
+        territory.y += (group.y - territory.y) * 0.08
+        for (const member of members) member.territoryId = territory.id
+      }
+
+      const active = this.activeMigration(group.id)
+      if (active) {
+        if (distanceSquared(group, active.to) < 85 * 85) {
+          active.completedDay = this.state.day
+          this.addEvent('migration', `${group.name} completed a migration`, `The ${active.reason}-driven route ended after ${(this.state.day - active.startedDay).toFixed(1)} days.`)
+        }
+        continue
+      }
+      if (group.kind === 'hunter') continue
+      const recent = [...this.state.migrations].reverse().find((record) => record.groupId === group.id)
+      if (recent && this.state.day - (recent.completedDay ?? recent.startedDay) < 6) continue
+      if (this.state.day - group.formedDay < 1) continue
+      const localHazard = this.disasterAt(group)
+      const localResources = this.migrationScore(group, group)
+      const trigger = localHazard || localResources < (group.kind === 'grazer' ? group.memberIds.length * 0.7 : group.memberIds.length)
+      if (!trigger) continue
+      const destination = this.migrationDestination(group)
+      if (!destination) continue
+      let reason: MigrationReason = localHazard ? 'climate' : 'resources'
+      if (group.kind === 'grazer') {
+        const threats = this.state.creatures.filter((creature) => creature.kind === 'hunter' && distanceSquared(creature, group) < 170 * 170).length
+        if (threats >= Math.max(2, group.memberIds.length * 0.35)) reason = 'threat'
+      }
+      this.state.migrations.push({ id: this.nextId(), groupId: group.id, reason, from: { x: group.x, y: group.y }, to: destination, startedDay: this.state.day, completedDay: null })
+      this.state.migrations = this.state.migrations.slice(-40)
+      this.addEvent('migration', `${group.name} begins migrating`, `${reason[0].toUpperCase()}${reason.slice(1)} pressure produced a route toward a stronger habitat score.`)
+    }
+
+    for (const territory of this.state.territories) {
+      const overlaps = this.state.territories.filter((other) =>
+        other.id !== territory.id && distanceSquared(other, territory) < (other.radius + territory.radius) ** 2,
+      ).length
+      territory.pressure = clamp(overlaps / 3, 0, 1)
+    }
+  }
+
   private randomTarget(creature: Creature): void {
     const angle = creature.angle + this.random.range(-1.3, 1.3)
     const distance = this.random.range(45, 150)
@@ -845,7 +1074,15 @@ export class SimulationEngine {
       nearby(waterBuckets, creature, searchRadius, SPATIAL_CELL_SIZE),
       searchRadius,
     )
-    if (!source) return false
+    if (!source) {
+      const memory = this.recalled(creature, 'water')
+      if (!memory) return false
+      creature.targetX = memory.x
+      creature.targetY = memory.y
+      creature.behaviour = 'drink'
+      return true
+    }
+    this.remember(creature, 'water', source)
     creature.targetX = source.x
     creature.targetY = source.y
     creature.behaviour = 'drink'
@@ -863,6 +1100,9 @@ export class SimulationEngine {
     plantBuckets: Map<string, Plant[]>,
     waterBuckets: Map<string, Point[]>,
   ): void {
+    if (biomeAt(this.state.terrain, this.state.columns, this.state.rows, creature.x, creature.y) === 'forest') {
+      this.remember(creature, 'shelter', creature)
+    }
     const inSight = nearby(creatureBuckets, creature, creature.genes.vision, 120)
     const threat = nearest(
       creature,
@@ -870,6 +1110,7 @@ export class SimulationEngine {
       creature.genes.vision,
     )
     if (threat) {
+      this.remember(creature, 'threat', threat)
       const dx = creature.x - threat.x
       const dy = creature.y - threat.y
       const length = Math.hypot(dx, dy) || 1
@@ -886,6 +1127,7 @@ export class SimulationEngine {
     )
     const food = nearest(creature, plants, creature.genes.vision)
     if (food && creature.energy < 72) {
+      this.remember(creature, 'food', food)
       creature.targetX = food.x
       creature.targetY = food.y
       creature.behaviour = 'forage'
@@ -896,6 +1138,16 @@ export class SimulationEngine {
         creature.meals += 1
       }
       return
+    }
+
+    if (!food && creature.energy < 72) {
+      const memory = this.recalled(creature, 'food')
+      if (memory) {
+        creature.targetX = memory.x
+        creature.targetY = memory.y
+        creature.behaviour = 'forage'
+        return
+      }
     }
 
     if (creature.hydration < 66 && this.seekWater(creature, waterBuckets)) return
@@ -931,7 +1183,10 @@ export class SimulationEngine {
       }
     }
 
+    if (this.followGroupDirective(creature)) return
+
     if (food && creature.energy < 90) {
+      this.remember(creature, 'food', food)
       creature.targetX = food.x
       creature.targetY = food.y
       creature.behaviour = 'forage'
@@ -951,6 +1206,9 @@ export class SimulationEngine {
     creatureBuckets: Map<string, Creature[]>,
     waterBuckets: Map<string, Point[]>,
   ): void {
+    if (biomeAt(this.state.terrain, this.state.columns, this.state.rows, creature.x, creature.y) === 'forest') {
+      this.remember(creature, 'shelter', creature)
+    }
     const inSight = nearby(
       creatureBuckets,
       creature,
@@ -963,7 +1221,7 @@ export class SimulationEngine {
       (total, other) => total + (other.kind === 'hunter' ? 1 : 0),
       0,
     )
-    const mateUrgency = hunterPopulation <= 4 && this.canReproduce('hunter')
+    const mateUrgency = hunterPopulation <= 7 && this.canReproduce('hunter')
 
     const prey = nearest(
       creature,
@@ -971,6 +1229,7 @@ export class SimulationEngine {
       creature.genes.vision,
     )
     if (prey && creature.energy < 64) {
+      this.remember(creature, 'food', prey)
       this.hunt(creature, prey)
       return
     }
@@ -1011,9 +1270,11 @@ export class SimulationEngine {
     }
 
     if (prey && creature.energy < 91) {
+      this.remember(creature, 'food', prey)
       this.hunt(creature, prey)
       return
     }
+    if (this.followGroupDirective(creature)) return
     this.randomTarget(creature)
   }
 
@@ -1235,6 +1496,7 @@ export class SimulationEngine {
       else survivors.push(creature)
     }
     this.state.creatures = survivors
+    if (this.state.tick % 60 === 0) this.updateSocialStructures()
     this.random.state >>>= 0
     this.state.rngState = this.random.state
     this.updateStats()

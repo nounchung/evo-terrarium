@@ -4,6 +4,7 @@ import { WorldCanvas } from './components/WorldCanvas'
 import { LineagePanel } from './components/LineagePanel'
 import { SpeciesCodex } from './components/SpeciesCodex'
 import { ClimatePanel } from './components/ClimatePanel'
+import { SocialLab } from './components/SocialLab'
 import { loadWorld, saveWorld } from './simulation/storage'
 import type {
   CreationTool,
@@ -104,6 +105,9 @@ const BEHAVIOUR_COPY: Record<WorldState['creatures'][number]['behaviour'], strin
   hunt: 'Tracking prey to restore its energy reserve.',
   mate: 'Seeking a compatible partner for the next generation.',
   rest: 'Conserving energy while no need is immediately critical.',
+  regroup: 'Returning toward nearby group members to restore cohesion.',
+  patrol: 'Moving back through the pack territory as rival pressure changes.',
+  migrate: 'Following a locally chosen route toward stronger habitat conditions.',
 }
 
 function App() {
@@ -114,6 +118,7 @@ function App() {
   const [lineageOpen, setLineageOpen] = useState(false)
   const [speciesOpen, setSpeciesOpen] = useState(false)
   const [climateOpen, setClimateOpen] = useState(false)
+  const [labMode, setLabMode] = useState(false)
   const [selectedSpeciesId, setSelectedSpeciesId] = useState(1)
   const [seedDialog, setSeedDialog] = useState(false)
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
@@ -195,6 +200,7 @@ function App() {
     setLineageOpen(false)
     setSpeciesOpen(false)
     setClimateOpen(false)
+    setLabMode(false)
     setTool('inspect')
     setSeedDialog(false)
     send({ type: 'reset', seed: nextSeed })
@@ -211,6 +217,7 @@ function App() {
     setLineageOpen(false)
     setSpeciesOpen(false)
     setClimateOpen(false)
+    setLabMode(false)
     setSeedDialog(true)
     changeSpeed(0)
   }
@@ -229,6 +236,7 @@ function App() {
     }
     setSpeciesOpen(false)
     setClimateOpen(false)
+    setLabMode(false)
     setSelectedId(id)
     setLineageOpen(true)
   }
@@ -245,6 +253,7 @@ function App() {
       : tool === 'inspect' ? speed : toolReturnSpeedRef.current
     setLineageOpen(false)
     setClimateOpen(false)
+    setLabMode(false)
     setTool('inspect')
     const newestLiving = [...(worldRef.current?.species ?? [])]
       .filter((record) => record.population > 0)
@@ -265,6 +274,7 @@ function App() {
     setLineageOpen(false)
     setSpeciesOpen(false)
     setClimateOpen(false)
+    setLabMode(false)
     if (nextTool === 'inspect') {
       if (tool !== 'inspect') finishCreation()
       return
@@ -281,6 +291,7 @@ function App() {
       if (event.key !== 'Escape') return
       if (seedDialog) closeSeedDialog()
       else if (climateOpen) setClimateOpen(false)
+      else if (labMode) setLabMode(false)
       else if (speciesOpen) {
         setSpeciesOpen(false)
         changeSpeed(speciesReturnSpeedRef.current)
@@ -297,7 +308,7 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [climateOpen, lineageOpen, seedDialog, selectedId, speciesOpen, tool])
+  }, [climateOpen, labMode, lineageOpen, seedDialog, selectedId, speciesOpen, tool])
   const openClimate = () => {
     const returnSpeed = speciesOpen
       ? speciesReturnSpeedRef.current
@@ -308,6 +319,24 @@ function App() {
     setSpeciesOpen(false)
     setTool('inspect')
     setClimateOpen(true)
+    setLabMode(false)
+    changeSpeed(returnSpeed)
+  }
+  const toggleLabMode = () => {
+    if (labMode) {
+      setLabMode(false)
+      return
+    }
+    const returnSpeed = speciesOpen
+      ? speciesReturnSpeedRef.current
+      : lineageOpen
+        ? lineageReturnSpeedRef.current
+        : tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    setLineageOpen(false)
+    setSpeciesOpen(false)
+    setClimateOpen(false)
+    setTool('inspect')
+    setLabMode(true)
     changeSpeed(returnSpeed)
   }
   const fullscreen = () => {
@@ -353,6 +382,7 @@ function App() {
         world={world}
         selectedId={selectedId}
         tool={tool}
+        labMode={labMode}
         onSelect={setSelectedId}
         onWorldAction={(action, x, y) => send({ type: 'world-action', action, x, y, radius: 58 })}
         onOneShotComplete={finishCreation}
@@ -375,6 +405,7 @@ function App() {
 
         <div className="top-actions">
           <span className={`save-state ${saved ? 'visible' : ''}`}>Saved</span>
+          <button className={`icon-button glass lab-toggle ${labMode ? 'active' : ''}`} type="button" onClick={toggleLabMode} aria-label="Toggle Social Lab"><Icon name="spark" /></button>
           <button className="icon-button glass" type="button" onClick={fullscreen} aria-label="Toggle fullscreen"><Icon name="expand" /></button>
           <button className="new-world glass" type="button" onClick={openSeedDialog}><Icon name="seed"/><span>New world</span></button>
         </div>
@@ -406,7 +437,7 @@ function App() {
         <button className={`weather-orb ${world?.climate.dayPhase ?? 'day'}`} type="button" onClick={openClimate} aria-label="Open climate lab"><span>{world ? `${world.climate.temperature.toFixed(0)}°` : '—'}</span></button>
       </section>
 
-      {!lineageOpen && !speciesOpen && !climateOpen && <aside className="event-feed" aria-label="Recent world events">
+      {!lineageOpen && !speciesOpen && !climateOpen && !labMode && <aside className="event-feed" aria-label="Recent world events">
         {(world?.events ?? []).slice(0, 3).map((event, index) => (
           <article key={event.id} className={`event-card glass ${index > 1 ? 'minor' : ''}`}>
             <span className={`event-symbol ${event.kind}`}><Icon name={event.kind === 'death' ? 'hunter' : event.kind === 'player' ? 'seed' : 'spark'} size={15}/></span>
@@ -415,7 +446,7 @@ function App() {
         ))}
       </aside>}
 
-      {selected && !lineageOpen && !speciesOpen && !climateOpen && (
+      {selected && !lineageOpen && !speciesOpen && !climateOpen && !labMode && (
         <aside className="creature-card glass" aria-label="Selected creature details">
           <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
@@ -477,6 +508,15 @@ function App() {
           world={world}
           onClose={() => setClimateOpen(false)}
           onTrigger={(type) => chooseTool(type)}
+        />
+      )}
+
+      {labMode && world && (
+        <SocialLab
+          world={world}
+          selected={selected}
+          onClose={() => setLabMode(false)}
+          onInspectCreature={setSelectedId}
         />
       )}
 
