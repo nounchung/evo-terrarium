@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Application, Container, Graphics } from 'pixi.js'
+import { useI18n } from '../i18n'
 import type { CreationTool, Creature, DisasterType, WorldState } from '../simulation/types'
 
 interface WorldCanvasProps {
@@ -391,8 +392,10 @@ export function WorldCanvas({
   onWorldAction,
   onOneShotComplete,
 }: WorldCanvasProps) {
+  const { isTraditionalChinese } = useI18n()
   const hostRef = useRef<HTMLDivElement>(null)
   const runtimeRef = useRef<CanvasRuntime | null>(null)
+  const localeRef = useRef(isTraditionalChinese)
   const worldRef = useRef(world)
   const toolRef = useRef(tool)
   const onSelectRef = useRef(onSelect)
@@ -402,6 +405,7 @@ export function WorldCanvas({
   const brushPointRef = useRef<PointerPosition | null>(null)
 
   worldRef.current = world
+  localeRef.current = isTraditionalChinese
   toolRef.current = tool
   onSelectRef.current = onSelect
   onActionRef.current = onWorldAction
@@ -427,7 +431,7 @@ export function WorldCanvas({
         app.destroy(true)
         return
       }
-      app.canvas.setAttribute('aria-label', 'Interactive evolving ecosystem')
+      app.canvas.setAttribute('aria-label', localeRef.current ? '互動式演化生態系統' : 'Interactive evolving ecosystem')
       app.canvas.setAttribute('role', 'application')
       app.canvas.setAttribute('aria-describedby', 'world-accessibility-summary')
       host.appendChild(app.canvas)
@@ -590,6 +594,13 @@ export function WorldCanvas({
       cleanup()
     }
   }, [])
+
+  useEffect(() => {
+    runtimeRef.current?.app.canvas.setAttribute(
+      'aria-label',
+      isTraditionalChinese ? '互動式演化生態系統' : 'Interactive evolving ecosystem',
+    )
+  }, [isTraditionalChinese])
 
   useEffect(() => {
     const runtime = runtimeRef.current

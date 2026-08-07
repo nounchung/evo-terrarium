@@ -1,10 +1,13 @@
 # EvoTerrarium
 
-Shape a world. Watch life adapt.
+塑造一個世界，觀察生命自行適應與演化。
 
 EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the environment, introduce life and observe feeding, fear, hunting, reproduction, mutation and extinction emerge from deterministic simulation rules.
 
-## Complete vertical slice (R7)
+## Complete vertical slice (R8)
+
+- Traditional Chinese (`zh-HK`) interface by default, with persistent English switching
+- Localized onboarding, tools, organism details, species, genealogy, climate, social lab, archive, accessibility labels and dynamic world events
 
 - Seeded water, meadow, grass and forest generation
 - Autonomous plants, grazers and hunters
@@ -63,7 +66,7 @@ See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r
 
 ## Roadmap
 
-R0 through R7 are complete. Each phase retains the capabilities from earlier phases; diagnostic views live in optional Lab surfaces rather than interrupting the core observation experience.
+R0 through R8 are complete. Each phase retains the capabilities from earlier phases; diagnostic views live in optional Lab surfaces rather than interrupting the core observation experience.
 
 ## Cost and deployment
 
