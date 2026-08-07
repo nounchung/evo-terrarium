@@ -114,7 +114,9 @@
 .food-web.balanced strong { color: #cddd91; }
 .food-web.stressed strong { color: #dfbd76; }
 .food-web.fragile strong { color: #db8068; }
-.weather-orb { width: 29px; height: 29px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #f6e6a3 0 10%, #d9b970 16%, #8a7b53 40%, rgba(90,107,80,.2) 62%); box-shadow: 0 0 17px rgba(229, 206, 120, .16); }
+.weather-orb { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; color: #2d2819; background: radial-gradient(circle at 35% 35%, #f6e6a3 0 10%, #d9b970 20%, #8a7b53 52%, #52664c 100%); border: 1px solid rgba(255,255,255,.16); border-radius: 50%; box-shadow: 0 0 17px rgba(229, 206, 120, .16); cursor: pointer; }
+.weather-orb.night { color: #dce3d5; background: radial-gradient(circle at 35% 35%, #b9ced4 0 10%, #557386 22%, #223c4a 58%, #12242e 100%); }
+.weather-orb span { font-family: var(--mono); font-size: 7px; font-weight: 700; }
 
 .event-feed { position: absolute; z-index: 4; right: max(18px, env(safe-area-inset-right)); top: 90px; display: flex; flex-direction: column; gap: 8px; width: min(300px, calc(100vw - 36px)); }
 .event-card { display: flex; gap: 11px; padding: 11px 13px; border-radius: 14px; animation: arrive .35s ease-out; }
@@ -124,6 +126,8 @@
 .event-symbol.death { background: #c47563; }
 .event-symbol.mutation { background: #e2cb78; }
 .event-symbol.speciation { background: #d8a8ec; }
+.event-symbol.disaster { background: #dc8064; }
+.event-symbol.recovery { background: #8fc59c; }
 .event-symbol.player { background: #91bbb0; }
 .event-card > div { min-width: 0; }
 .event-card small { display: block; margin-bottom: 2px; color: rgba(229, 234, 213, .62); font-family: var(--mono); font-size: 9px; letter-spacing: .9px; }
@@ -241,6 +245,39 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
 .species-signature strong { color: #e9ecd6; font-family: var(--mono); font-size: 11px; font-weight: 500; }
 .founder-action { width: 100%; min-height: 44px; margin-top: 17px; color: #17251b; background: #dfe0a6; border: 0; border-radius: 11px; font-size: 10px; font-weight: 700; cursor: pointer; }
 
+.climate-panel { position: absolute; z-index: 8; top: 88px; right: max(18px, env(safe-area-inset-right)); width: min(370px, calc(100vw - 36px)); max-height: calc(100svh - 176px); overflow: auto; padding: 19px; color: #edf0db; background: #0a1c13; border: 1px solid rgba(218, 229, 197, .17); border-radius: 20px; box-shadow: 0 22px 65px rgba(0,0,0,.42), inset 0 1px rgba(255,255,255,.04); animation: card-in .22s ease-out; }
+.climate-panel > header { display: flex; justify-content: space-between; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid rgba(230,235,215,.1); }
+.climate-panel > header small { color: #d7db98; font-family: var(--mono); font-size: 9px; letter-spacing: 1px; }
+.climate-panel > header h2 { margin: 4px 0 2px; font-size: 20px; }
+.climate-panel > header p { margin: 0; color: rgba(230,235,216,.66); font-size: 11px; text-transform: capitalize; }
+.climate-panel > header button { flex: 0 0 auto; width: 58px; height: 44px; color: rgba(239,241,224,.72); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1); border-radius: 11px; font-size: 10px; cursor: pointer; }
+.climate-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 14px 0 17px; }
+.climate-metrics > div { min-width: 0; padding: 10px; background: rgba(2,13,7,.35); border: 1px solid rgba(229,234,214,.08); border-radius: 11px; }
+.climate-metrics small, .climate-metrics strong, .climate-metrics span { display: block; }
+.climate-metrics small { color: rgba(229,234,214,.57); font-family: var(--mono); font-size: 7px; letter-spacing: .6px; }
+.climate-metrics strong { margin: 5px 0 3px; font-family: var(--mono); font-size: 16px; font-weight: 500; }
+.climate-metrics span { overflow: hidden; color: rgba(229,234,214,.6); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.active-pressure { padding-bottom: 15px; }
+.active-pressure > p { margin: 0; color: rgba(232,236,218,.66); font-size: 11px; line-height: 1.5; }
+.active-pressure article { display: flex; gap: 9px; align-items: center; margin-bottom: 6px; padding: 9px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; }
+.active-pressure article > i, .disaster-actions button > i { flex: 0 0 9px; height: 9px; background: #d8b66b; border-radius: 50%; box-shadow: 0 0 10px currentColor; }
+.active-pressure i.flood, .disaster-actions i.flood { background: #73b9c2; }
+.active-pressure i.disease, .disaster-actions i.disease { background: #bd86ca; }
+.active-pressure i.wildfire, .disaster-actions i.wildfire { background: #dc7258; }
+.active-pressure article strong, .active-pressure article span { display: block; }
+.active-pressure article strong { font-size: 10px; text-transform: capitalize; }
+.active-pressure article span { margin-top: 2px; color: rgba(229,234,214,.62); font-family: var(--mono); font-size: 8px; }
+.recovery-note { display: block; margin-top: 8px; color: #b3d1b1; font-size: 9px; line-height: 1.45; }
+.disaster-actions { padding-top: 14px; border-top: 1px solid rgba(230,235,215,.1); }
+.disaster-actions > div:last-child { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.disaster-actions button { display: flex; min-height: 60px; gap: 9px; align-items: flex-start; padding: 10px; color: #edf0db; background: rgba(3,16,9,.35); border: 1px solid rgba(226,232,208,.1); border-radius: 11px; text-align: left; cursor: pointer; }
+.disaster-actions button:hover { background: rgba(201,218,146,.08); border-color: rgba(212,225,166,.27); }
+.disaster-actions button > i { margin-top: 4px; }
+.disaster-actions button strong, .disaster-actions button small { display: block; }
+.disaster-actions button strong { margin-bottom: 3px; font-size: 10px; }
+.disaster-actions button small { color: rgba(229,234,214,.62); font-size: 9px; line-height: 1.35; }
+.climate-panel > footer { margin-top: 13px; color: rgba(229,234,214,.55); font-size: 9px; line-height: 1.45; }
+
 .time-controls { position: absolute; z-index: 5; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 4px; height: 52px; padding: 6px; border-radius: 16px; transform: translateX(-50%); }
 .time-controls button { display: grid; min-width: 44px; height: 44px; padding: 0 8px; place-items: center; color: rgba(233, 236, 218, .72); background: transparent; border: 0; border-radius: 11px; font-family: var(--mono); font-size: 10px; cursor: pointer; }
 .time-controls button:hover { color: #fff; background: rgba(255,255,255,.06); }
@@ -256,6 +293,10 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
 .tool-swatch { display: grid; width: 38px; height: 38px; place-items: center; color: #18251b; background: #dfe0a6; border-radius: 11px; }
 .tool-swatch.water { background: #9fcfc8; }
 .tool-swatch.hunter { background: #dc8a70; }
+.tool-swatch.flood { background: #9fcfc8; }
+.tool-swatch.drought { background: #d8b66b; }
+.tool-swatch.disease { background: #c598cf; }
+.tool-swatch.wildfire { background: #dc8064; }
 .tool-status div { min-width: 0; }
 .tool-status small { display: block; color: #d9dda1; font-family: var(--mono); font-size: 8px; letter-spacing: 1px; }
 .tool-status strong { display: block; margin-top: 2px; font-size: 12px; }
@@ -341,6 +382,8 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
   .species-metrics { margin: 14px 0; }
   .species-metrics > div { padding: 9px; }
   .species-signature > div:last-child { grid-template-columns: repeat(2, 1fr); }
+  .climate-panel { top: 101px; right: 9px; width: calc(100vw - 18px); max-height: calc(100svh - 220px); padding: 16px; }
+  .climate-metrics > div { padding: 8px; }
   .lineage-row.grandparents { grid-template-columns: repeat(2, 1fr); }
   .lineage-row.parents { margin-inline: 10px; }
   .lineage-row.subject { margin-inline: 45px; }

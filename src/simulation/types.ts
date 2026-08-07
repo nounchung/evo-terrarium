@@ -6,8 +6,11 @@ export type Biome = 'deep-water' | 'water' | 'meadow' | 'grass' | 'forest'
 export type CreatureKind = 'grazer' | 'hunter'
 export type Behaviour = 'wander' | 'forage' | 'drink' | 'flee' | 'hunt' | 'mate' | 'rest'
 export type SimSpeed = 0 | 1 | 5 | 20 | 100
-export type DeathCause = 'predation' | 'starvation' | 'dehydration' | 'age'
+export type DeathCause = 'predation' | 'starvation' | 'dehydration' | 'disease' | 'fire' | 'age'
 export type EcosystemStatus = 'balanced' | 'stressed' | 'fragile'
+export type Season = 'new-growth' | 'high-sun' | 'amberfall' | 'long-rain'
+export type DayPhase = 'dawn' | 'day' | 'dusk' | 'night'
+export type DisasterType = 'drought' | 'flood' | 'disease' | 'wildfire'
 
 export interface Point {
   x: number
@@ -61,6 +64,7 @@ export interface Creature extends Point {
   kills: number
   lastAttackerId: number | null
   lastAttackTick: number
+  lastHazard: DisasterType | null
 }
 
 export interface Plant extends Point {
@@ -74,7 +78,7 @@ export interface Plant extends Point {
 export interface WorldEvent {
   id: number
   day: number
-  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player' | 'speciation'
+  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player' | 'speciation' | 'disaster' | 'recovery'
   title: string
   detail: string
 }
@@ -111,6 +115,28 @@ export interface SpeciesRecord {
   peakPopulation: number
   signature: Genes
   populationHistory: SpeciesPopulationPoint[]
+}
+
+export interface ClimateState {
+  season: Season
+  dayPhase: DayPhase
+  daylight: number
+  temperature: number
+  rainfall: number
+  soilMoisture: number
+  nextSeedEventDay: number
+}
+
+export interface DisasterRecord extends Point {
+  id: number
+  type: DisasterType
+  radius: number
+  intensity: number
+  startedDay: number
+  endsDay: number
+  trigger: 'seed' | 'player'
+  affectedCells: number
+  recoveryNoted: boolean
 }
 
 export interface DeathRecord {
@@ -155,6 +181,8 @@ export interface WorldState {
   deathRecords: DeathRecord[]
   genealogy: LineageRecord[]
   species: SpeciesRecord[]
+  climate: ClimateState
+  disasters: DisasterRecord[]
   day: number
   tick: number
   rngState: number
@@ -171,6 +199,7 @@ export type CreationTool =
   | 'plant'
   | 'grazer'
   | 'hunter'
+  | DisasterType
 
 export type WorkerCommand =
   | { type: 'init'; seed: string; restored?: WorldState }
