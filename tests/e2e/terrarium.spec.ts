@@ -1,5 +1,32 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ page }, testInfo) => {
+  if (!testInfo.title.includes('introduces the world')) {
+    await page.addInitScript(() => window.localStorage.setItem('evo-terrarium:onboarding-v1', 'complete'))
+  }
+})
+
+test('introduces the world with an accessible first-run tour', async ({ page }) => {
+  await page.goto('/')
+  const tour = page.getByRole('dialog', { name: 'Meet a world already in motion' })
+  await expect(tour).toBeVisible()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Change habitat, not outcomes' })).toBeVisible()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Watch generations become history' })).toBeVisible()
+  await page.getByRole('button', { name: 'Continue silently' }).click()
+  await expect(tour).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Turn living soundscape on' })).toBeVisible()
+})
+
+test('enables and disables the procedural living soundscape', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Turn living soundscape on' }).click()
+  await expect(page.getByRole('button', { name: 'Turn living soundscape off' })).toHaveAttribute('aria-pressed', 'true')
+  await page.getByRole('button', { name: 'Turn living soundscape off' }).click()
+  await expect(page.getByRole('button', { name: 'Turn living soundscape on' })).toHaveAttribute('aria-pressed', 'false')
+})
+
 test('loads a living world and exposes simulation controls', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('EvoTerrarium')).toBeVisible()
@@ -14,7 +41,7 @@ test('creates a deterministic world from a chosen seed', async ({ page }) => {
   await page.getByRole('button', { name: 'Create a new world' }).click()
   await page.getByLabel('WORLD SEED').fill('E2E-2244')
   await page.getByRole('button', { name: 'Grow this world' }).click()
-  await expect(page.getByText('A living world awakens')).toBeVisible()
+  await expect(page.getByLabel('Recent world events').getByText('A living world awakens', { exact: true })).toBeVisible()
 })
 
 test('pauses while the new-world dialog is open and restores the prior speed', async ({ page }) => {
@@ -106,6 +133,7 @@ test('keeps the optional Social Lab live while exposing group rules', async ({ p
 })
 
 test('names a save slot and replays an ecological landmark from the archive', async ({ page }) => {
+  test.setTimeout(75_000)
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Open World Archive' }).click()

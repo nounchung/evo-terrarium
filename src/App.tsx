@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Volume2, VolumeX } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import './App.css'
+import { ProceduralSoundscape } from './audio/soundscape'
 import { WorldCanvas } from './components/WorldCanvas'
 import { LineagePanel } from './components/LineagePanel'
 import { SpeciesCodex } from './components/SpeciesCodex'
 import { ClimatePanel } from './components/ClimatePanel'
 import { SocialLab } from './components/SocialLab'
 import { ArchivePanel } from './components/ArchivePanel'
+import { OnboardingTour } from './components/OnboardingTour'
 import {
   listSaveSlots,
   loadWorld,
@@ -90,6 +93,23 @@ const toolMeta = (tool: CreationTool) => TOOLS.find((item) => item.id === tool)
   ?? DISASTER_TOOL_META[tool as DisasterType]
 
 const SPEEDS: SimSpeed[] = [0, 1, 5, 20, 100]
+const ONBOARDING_KEY = 'evo-terrarium:onboarding-v1'
+
+function needsOnboarding(): boolean {
+  try {
+    return window.localStorage.getItem(ONBOARDING_KEY) !== 'complete'
+  } catch {
+    return true
+  }
+}
+
+function rememberOnboarding(): void {
+  try {
+    window.localStorage.setItem(ONBOARDING_KEY, 'complete')
+  } catch {
+    // The tour can still be dismissed when storage is unavailable.
+  }
+}
 
 function makeSeed(): string {
   const words = ['MOSS', 'FERN', 'TIDAL', 'AMBER', 'SPORE', 'CEDAR', 'WILD']
@@ -138,8 +158,13 @@ function App() {
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
   const [saved, setSaved] = useState(false)
   const [canUndo, setCanUndo] = useState(false)
+  const [soundEnabled, setSoundEnabled] = useState(false)
+  const [soundNotice, setSoundNotice] = useState('')
+  const [onboardingOpen, setOnboardingOpen] = useState(needsOnboarding)
   const workerRef = useRef<Worker | null>(null)
   const worldRef = useRef<WorldState | null>(null)
+  const soundscapeRef = useRef<ProceduralSoundscape | null>(null)
+  const soundNoticeTimeoutRef = useRef<number | null>(null)
   const dialogReturnSpeedRef = useRef<SimSpeed>(1)
   const toolReturnSpeedRef = useRef<SimSpeed>(1)
   const lineageReturnSpeedRef = useRef<SimSpeed>(1)
@@ -196,6 +221,15 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (world && soundEnabled) soundscapeRef.current?.update(world)
+  }, [soundEnabled, world])
+
+  useEffect(() => () => {
+    if (soundNoticeTimeoutRef.current !== null) window.clearTimeout(soundNoticeTimeoutRef.current)
+    void soundscapeRef.current?.stop()
+  }, [])
+
+  useEffect(() => {
     const interval = window.setInterval(() => {
       const current = worldRef.current
       if (!current || replayRef.current.active) return
@@ -214,6 +248,46 @@ function App() {
   }, [lineageOpen, selectedId, speciesOpen, world])
 
   const send = (command: WorkerCommand) => workerRef.current?.postMessage(command)
+  const showSoundNotice = useCallback((message: string) => {
+    setSoundNotice(message)
+    if (soundNoticeTimeoutRef.current !== null) window.clearTimeout(soundNoticeTimeoutRef.current)
+    soundNoticeTimeoutRef.current = window.setTimeout(() => setSoundNotice(''), 2600)
+  }, [])
+  const startSound = useCallback(async () => {
+    const current = worldRef.current
+    if (!current) return
+    const soundscape = soundscapeRef.current ?? new ProceduralSoundscape()
+    soundscapeRef.current = soundscape
+    try {
+      const started = await soundscape.start(current)
+      setSoundEnabled(started)
+      showSoundNotice(started ? 'Living soundscape on' : 'Audio is unavailable in this browser')
+    } catch {
+      setSoundEnabled(false)
+      soundscapeRef.current = null
+      void soundscape.stop()
+      showSoundNotice('Audio is unavailable in this browser')
+    }
+  }, [showSoundNotice])
+  const stopSound = useCallback(() => {
+    setSoundEnabled(false)
+    showSoundNotice('Living soundscape off')
+    void soundscapeRef.current?.stop()
+    soundscapeRef.current = null
+  }, [showSoundNotice])
+  const toggleSound = () => {
+    if (soundEnabled) stopSound()
+    else void startSound()
+  }
+  const skipOnboarding = useCallback(() => {
+    rememberOnboarding()
+    setOnboardingOpen(false)
+  }, [])
+  const completeOnboarding = useCallback((enableSound: boolean) => {
+    rememberOnboarding()
+    setOnboardingOpen(false)
+    if (enableSound) void startSound()
+  }, [startSound])
   const changeSpeed = (nextSpeed: SimSpeed) => {
     setSpeed(nextSpeed)
     send({ type: 'speed', speed: nextSpeed })
@@ -531,7 +605,17 @@ function App() {
           <span className={`save-state ${saved ? 'visible' : ''}`}>Saved</span>
           <button className={`icon-button glass archive-toggle ${archiveOpen ? 'active' : ''}`} type="button" onClick={openArchive} aria-label="Open World Archive"><Icon name="undo" /></button>
           <button className={`icon-button glass lab-toggle ${labMode ? 'active' : ''}`} type="button" onClick={toggleLabMode} aria-label="Toggle Social Lab"><Icon name="spark" /></button>
-          <button className="icon-button glass" type="button" onClick={fullscreen} aria-label="Toggle fullscreen"><Icon name="expand" /></button>
+          <button
+            className={`icon-button glass sound-toggle ${soundEnabled ? 'active' : ''}`}
+            type="button"
+            onClick={toggleSound}
+            aria-label={soundEnabled ? 'Turn living soundscape off' : 'Turn living soundscape on'}
+            aria-pressed={soundEnabled}
+            title={soundEnabled ? 'Turn living soundscape off' : 'Turn living soundscape on'}
+          >
+            {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
+          </button>
+          <button className="icon-button glass fullscreen-toggle" type="button" onClick={fullscreen} aria-label="Toggle fullscreen"><Icon name="expand" /></button>
           <button className="new-world glass" type="button" onClick={openSeedDialog}><Icon name="seed"/><span>New world</span></button>
         </div>
       </header>
@@ -561,6 +645,15 @@ function App() {
         <div className={`food-web ${foodWebLabel}`}><small>FOOD WEB</small><strong>{foodWebLabel}</strong></div>
         <button className={`weather-orb ${world?.climate.dayPhase ?? 'day'}`} type="button" onClick={openClimate} aria-label="Open climate lab"><span>{world ? `${world.climate.temperature.toFixed(0)}°` : '—'}</span></button>
       </section>
+
+      <section id="world-accessibility-summary" className="visually-hidden">
+        <h1>Living ecosystem summary</h1>
+        <p>{population} creatures across {livingSpecies} living species. The food web is {foodWebLabel}. Current season: {season}.</p>
+        <p>Use the creation tools to alter habitat. Use simulation speed controls to pause or advance time.</p>
+      </section>
+      <p className="visually-hidden" role="status" aria-live={onboardingOpen ? 'off' : 'polite'}>{world?.events[0]?.title ?? ''}</p>
+
+      {soundNotice && <div className="sound-notice glass" role="status" aria-live="polite">{soundNotice}</div>}
 
       {!lineageOpen && !speciesOpen && !climateOpen && !labMode && !archiveOpen && <aside className="event-feed" aria-label="Recent world events">
         {(world?.events ?? []).slice(0, 3).map((event, index) => (
@@ -701,6 +794,10 @@ function App() {
             <small className="dialog-note"><strong>World paused while choosing.</strong> Your current world is auto-saved on this device.</small>
           </section>
         </div>
+      )}
+
+      {world && onboardingOpen && (
+        <OnboardingTour onComplete={completeOnboarding} onSkip={skipOnboarding} />
       )}
     </main>
   )

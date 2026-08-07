@@ -22,6 +22,7 @@ interface CanvasRuntime {
   social: Graphics
   brush: Graphics
   terrainRevision: number
+  reducedMotion: boolean
 }
 
 interface PointerPosition {
@@ -237,48 +238,54 @@ function drawCreatures(
   graphic: Graphics,
   world: WorldState,
   selectedId: number | null,
+  reducedMotion: boolean,
 ): void {
   graphic.clear()
   for (const creature of world.creatures) {
-    if (creature.id === selectedId) {
+    const active = !['rest', 'drink'].includes(creature.behaviour)
+    const bob = reducedMotion || !active
+      ? 0
+      : Math.sin(world.tick * 0.22 + creature.id * 1.83) * (creature.kind === 'hunter' ? 0.8 : 0.55)
+    const displayCreature = bob === 0 ? creature : { ...creature, y: creature.y + bob }
+    if (displayCreature.id === selectedId) {
       graphic
-        .circle(creature.x, creature.y, 15 * creature.genes.size)
+        .circle(displayCreature.x, displayCreature.y, 15 * displayCreature.genes.size)
         .stroke({ color: 0xffe493, width: 2.2, alpha: 0.95 })
       graphic
-        .circle(creature.x, creature.y, 19 * creature.genes.size)
+        .circle(displayCreature.x, displayCreature.y, 19 * displayCreature.genes.size)
         .stroke({ color: 0xffe493, width: 1, alpha: 0.25 })
     }
-    if (creature.kind === 'grazer') drawGrazer(graphic, creature)
-    else drawHunter(graphic, creature)
-    if (creature.mutations.some((mutation) => mutation.significant)) {
-      const markerY = creature.y - 16 * creature.genes.size
+    if (displayCreature.kind === 'grazer') drawGrazer(graphic, displayCreature)
+    else drawHunter(graphic, displayCreature)
+    if (displayCreature.mutations.some((mutation) => mutation.significant)) {
+      const markerY = displayCreature.y - 16 * displayCreature.genes.size
       graphic
         .poly([
-          creature.x, markerY - 3,
-          creature.x + 3, markerY,
-          creature.x, markerY + 3,
-          creature.x - 3, markerY,
+          displayCreature.x, markerY - 3,
+          displayCreature.x + 3, markerY,
+          displayCreature.x, markerY + 3,
+          displayCreature.x - 3, markerY,
         ])
         .fill({ color: 0xf2d976, alpha: 0.94 })
     }
-    if (creature.behaviour === 'drink') {
-      const markerY = creature.y - 13 * creature.genes.size
+    if (displayCreature.behaviour === 'drink') {
+      const markerY = displayCreature.y - 13 * displayCreature.genes.size
       graphic
-        .moveTo(creature.x, markerY - 3.5)
+        .moveTo(displayCreature.x, markerY - 3.5)
         .bezierCurveTo(
-          creature.x - 4,
+          displayCreature.x - 4,
           markerY + 1,
-          creature.x - 2.5,
+          displayCreature.x - 2.5,
           markerY + 4.5,
-          creature.x,
+          displayCreature.x,
           markerY + 4.5,
         )
         .bezierCurveTo(
-          creature.x + 2.5,
+          displayCreature.x + 2.5,
           markerY + 4.5,
-          creature.x + 4,
+          displayCreature.x + 4,
           markerY + 1,
-          creature.x,
+          displayCreature.x,
           markerY - 3.5,
         )
         .fill({ color: 0x91d4d0, alpha: 0.9 })
@@ -293,8 +300,19 @@ const DISASTER_COLOURS: Record<DisasterType, number> = {
   wildfire: 0xdc7258,
 }
 
-function drawAtmosphere(graphic: Graphics, world: WorldState): void {
+function drawAtmosphere(graphic: Graphics, world: WorldState, reducedMotion: boolean): void {
   graphic.clear()
+  const seasonTint = {
+    'new-growth': 0x9dcf7d,
+    'high-sun': 0xe7bd70,
+    amberfall: 0xd48a59,
+    'long-rain': 0x70a9b3,
+  }[world.climate.season]
+  const seasonAlpha = world.climate.season === 'amberfall' ? 0.032 : 0.022
+  graphic.rect(0, 0, world.width, world.height).fill({ color: seasonTint, alpha: seasonAlpha })
+  if (world.climate.dayPhase === 'dawn' || world.climate.dayPhase === 'dusk') {
+    graphic.rect(0, 0, world.width, world.height).fill({ color: 0xd78158, alpha: world.climate.dayPhase === 'dusk' ? 0.055 : 0.038 })
+  }
   const nightAlpha = Math.max(0, 0.28 - world.climate.daylight * 0.27)
   graphic.rect(0, 0, world.width, world.height).fill({ color: 0x06131e, alpha: nightAlpha })
   if (world.climate.temperature > 27) {
@@ -306,6 +324,14 @@ function drawAtmosphere(graphic: Graphics, world: WorldState): void {
       const x = (index * 193 + world.tick * 0.7) % world.width
       const y = (index * 97 + world.tick * 1.6) % world.height
       graphic.moveTo(x, y).lineTo(x - 5, y + 13).stroke({ color: 0xb4d8d1, width: 1.1, alpha: rainAlpha })
+    }
+  }
+  if (world.climate.dayPhase === 'night') {
+    for (let index = 0; index < 16; index += 1) {
+      const x = 35 + ((index * 317) % Math.max(80, world.width - 70))
+      const y = 40 + ((index * 173) % Math.max(80, world.height - 120))
+      const pulse = reducedMotion ? 0.42 : 0.27 + (Math.sin(world.tick * 0.12 + index * 1.7) + 1) * 0.16
+      graphic.circle(x, y, index % 3 === 0 ? 1.8 : 1.2).fill({ color: 0xdfe99b, alpha: pulse })
     }
   }
   for (const record of world.disasters) {
@@ -393,7 +419,7 @@ export function WorldCanvas({
         resizeTo: host,
         antialias: true,
         autoDensity: true,
-        resolution: Math.min(window.devicePixelRatio || 1, 2),
+        resolution: Math.min(window.devicePixelRatio || 1, window.innerWidth < 440 ? 1.35 : window.innerWidth < 700 ? 1.5 : 2),
         background: 0x09140e,
         preference: 'webgl',
       })
@@ -403,6 +429,7 @@ export function WorldCanvas({
       }
       app.canvas.setAttribute('aria-label', 'Interactive evolving ecosystem')
       app.canvas.setAttribute('role', 'application')
+      app.canvas.setAttribute('aria-describedby', 'world-accessibility-summary')
       host.appendChild(app.canvas)
 
       const viewport = new Container()
@@ -414,7 +441,18 @@ export function WorldCanvas({
       const brush = new Graphics()
       viewport.addChild(terrain, plants, creatures, atmosphere, social, brush)
       app.stage.addChild(viewport)
-      const runtime = { app, viewport, terrain, plants, creatures, atmosphere, social, brush, terrainRevision: -1 }
+      const runtime = {
+        app,
+        viewport,
+        terrain,
+        plants,
+        creatures,
+        atmosphere,
+        social,
+        brush,
+        terrainRevision: -1,
+        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      }
       runtimeRef.current = runtime
 
       const pointers = new Map<number, PointerPosition>()
@@ -568,8 +606,8 @@ export function WorldCanvas({
     }
     if (runtime.terrainRevision !== world.terrainRevision) drawTerrain(runtime, world)
     drawPlants(runtime.plants, world)
-    drawCreatures(runtime.creatures, world, selectedId)
-    drawAtmosphere(runtime.atmosphere, world)
+    drawCreatures(runtime.creatures, world, selectedId, runtime.reducedMotion)
+    drawAtmosphere(runtime.atmosphere, world, runtime.reducedMotion)
     if (labMode) drawSocialLab(runtime.social, world)
     else runtime.social.clear()
   }, [labMode, selectedId, world])
