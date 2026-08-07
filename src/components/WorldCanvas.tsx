@@ -8,6 +8,7 @@ interface WorldCanvasProps {
   tool: CreationTool
   onSelect: (id: number | null) => void
   onWorldAction: (action: Exclude<CreationTool, 'inspect'>, x: number, y: number) => void
+  onOneShotComplete: () => void
 }
 
 interface CanvasRuntime {
@@ -17,12 +18,31 @@ interface CanvasRuntime {
   plants: Graphics
   creatures: Graphics
   atmosphere: Graphics
+  brush: Graphics
   terrainRevision: number
 }
 
 interface PointerPosition {
   x: number
   y: number
+}
+
+function drawBrushPreview(
+  runtime: CanvasRuntime,
+  tool: CreationTool,
+  point: PointerPosition | null,
+): void {
+  runtime.brush.clear()
+  if (tool === 'inspect' || !point) return
+  const radius = tool === 'grazer' || tool === 'hunter' ? 24 : 58
+  const colour = tool === 'water' ? 0x9edbd4 : tool === 'hunter' ? 0xe18c70 : 0xe2e1a7
+  runtime.brush
+    .circle(point.x, point.y, radius)
+    .fill({ color: colour, alpha: 0.1 })
+    .stroke({ color: colour, width: 2 / runtime.viewport.scale.x, alpha: 0.9 })
+  runtime.brush
+    .circle(point.x, point.y, 3 / runtime.viewport.scale.x)
+    .fill({ color: colour, alpha: 0.95 })
 }
 
 const BIOME_COLOURS: Record<string, number> = {
@@ -162,6 +182,28 @@ function drawCreatures(
     }
     if (creature.kind === 'grazer') drawGrazer(graphic, creature)
     else drawHunter(graphic, creature)
+    if (creature.behaviour === 'drink') {
+      const markerY = creature.y - 13 * creature.genes.size
+      graphic
+        .moveTo(creature.x, markerY - 3.5)
+        .bezierCurveTo(
+          creature.x - 4,
+          markerY + 1,
+          creature.x - 2.5,
+          markerY + 4.5,
+          creature.x,
+          markerY + 4.5,
+        )
+        .bezierCurveTo(
+          creature.x + 2.5,
+          markerY + 4.5,
+          creature.x + 4,
+          markerY + 1,
+          creature.x,
+          markerY - 3.5,
+        )
+        .fill({ color: 0x91d4d0, alpha: 0.9 })
+    }
   }
 }
 
@@ -184,6 +226,7 @@ export function WorldCanvas({
   tool,
   onSelect,
   onWorldAction,
+  onOneShotComplete,
 }: WorldCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const runtimeRef = useRef<CanvasRuntime | null>(null)
@@ -191,12 +234,15 @@ export function WorldCanvas({
   const toolRef = useRef(tool)
   const onSelectRef = useRef(onSelect)
   const onActionRef = useRef(onWorldAction)
+  const onOneShotCompleteRef = useRef(onOneShotComplete)
   const fittedRef = useRef(false)
+  const brushPointRef = useRef<PointerPosition | null>(null)
 
   worldRef.current = world
   toolRef.current = tool
   onSelectRef.current = onSelect
   onActionRef.current = onWorldAction
+  onOneShotCompleteRef.current = onOneShotComplete
 
   useEffect(() => {
     const host = hostRef.current
@@ -227,16 +273,16 @@ export function WorldCanvas({
       const plants = new Graphics()
       const creatures = new Graphics()
       const atmosphere = new Graphics()
-      viewport.addChild(terrain, plants, creatures, atmosphere)
+      const brush = new Graphics()
+      viewport.addChild(terrain, plants, creatures, atmosphere, brush)
       app.stage.addChild(viewport)
-      const runtime = { app, viewport, terrain, plants, creatures, atmosphere, terrainRevision: -1 }
+      const runtime = { app, viewport, terrain, plants, creatures, atmosphere, brush, terrainRevision: -1 }
       runtimeRef.current = runtime
 
       const pointers = new Map<number, PointerPosition>()
       let dragStart: PointerPosition | null = null
       let viewportStart: PointerPosition | null = null
       let moved = false
-      let lastPaint = 0
       let pinchDistance = 0
       let pinchScale = 1
 
@@ -250,12 +296,13 @@ export function WorldCanvas({
         y: (point.y - viewport.y) / viewport.scale.y,
       })
       const paint = (point: PointerPosition) => {
-        if (toolRef.current === 'inspect') return
-        const now = performance.now()
-        if (now - lastPaint < 70) return
-        lastPaint = now
+        const activeTool = toolRef.current
+        if (activeTool === 'inspect') return
         const location = worldPoint(point)
-        onActionRef.current(toolRef.current, location.x, location.y)
+        onActionRef.current(activeTool, location.x, location.y)
+        if (activeTool === 'grazer' || activeTool === 'hunter') {
+          onOneShotCompleteRef.current()
+        }
       }
       const zoomAt = (point: PointerPosition, nextScale: number) => {
         const currentScale = viewport.scale.x
@@ -264,17 +311,19 @@ export function WorldCanvas({
         const localY = (point.y - viewport.y) / currentScale
         viewport.scale.set(clamped)
         viewport.position.set(point.x - localX * clamped, point.y - localY * clamped)
+        drawBrushPreview(runtime, toolRef.current, brushPointRef.current)
       }
 
       const onPointerDown = (event: PointerEvent) => {
         canvas.setPointerCapture(event.pointerId)
         const point = screenPoint(event)
+        brushPointRef.current = worldPoint(point)
+        drawBrushPreview(runtime, toolRef.current, brushPointRef.current)
         pointers.set(event.pointerId, point)
         if (pointers.size === 1) {
           dragStart = point
           viewportStart = { x: viewport.x, y: viewport.y }
           moved = false
-          paint(point)
         } else if (pointers.size === 2) {
           const [first, second] = [...pointers.values()]
           pinchDistance = Math.hypot(second.x - first.x, second.y - first.y)
@@ -282,8 +331,10 @@ export function WorldCanvas({
         }
       }
       const onPointerMove = (event: PointerEvent) => {
-        if (!pointers.has(event.pointerId)) return
         const point = screenPoint(event)
+        brushPointRef.current = worldPoint(point)
+        drawBrushPreview(runtime, toolRef.current, brushPointRef.current)
+        if (!pointers.has(event.pointerId)) return
         pointers.set(event.pointerId, point)
         if (pointers.size === 2) {
           const [first, second] = [...pointers.values()]
@@ -297,11 +348,9 @@ export function WorldCanvas({
         const dx = point.x - dragStart.x
         const dy = point.y - dragStart.y
         if (Math.hypot(dx, dy) > 4) moved = true
-        if (toolRef.current === 'inspect') {
-          viewport.position.set(viewportStart.x + dx, viewportStart.y + dy)
-        } else {
-          paint(point)
-        }
+        viewport.position.set(viewportStart.x + dx, viewportStart.y + dy)
+        brushPointRef.current = worldPoint(point)
+        drawBrushPreview(runtime, toolRef.current, brushPointRef.current)
       }
       const onPointerUp = (event: PointerEvent) => {
         const point = screenPoint(event)
@@ -321,6 +370,8 @@ export function WorldCanvas({
             }
           }
           onSelectRef.current(selected?.id ?? null)
+        } else if (toolRef.current !== 'inspect' && !moved && pointers.size === 1) {
+          paint(point)
         }
         pointers.delete(event.pointerId)
         dragStart = null
@@ -330,6 +381,10 @@ export function WorldCanvas({
         event.preventDefault()
         zoomAt(screenPoint(event), viewport.scale.x * Math.exp(-event.deltaY * 0.0012))
       }
+      const onPointerLeave = () => {
+        brushPointRef.current = null
+        brush.clear()
+      }
       const onResize = () => {
         if (worldRef.current && !fittedRef.current) fitCamera(runtime, worldRef.current)
       }
@@ -338,6 +393,7 @@ export function WorldCanvas({
       canvas.addEventListener('pointerup', onPointerUp)
       canvas.addEventListener('pointercancel', onPointerUp)
       canvas.addEventListener('wheel', onWheel, { passive: false })
+      canvas.addEventListener('pointerleave', onPointerLeave)
       window.addEventListener('resize', onResize)
 
       cleanup = () => {
@@ -346,6 +402,7 @@ export function WorldCanvas({
         canvas.removeEventListener('pointerup', onPointerUp)
         canvas.removeEventListener('pointercancel', onPointerUp)
         canvas.removeEventListener('wheel', onWheel)
+        canvas.removeEventListener('pointerleave', onPointerLeave)
         window.removeEventListener('resize', onResize)
         runtimeRef.current = null
         app.destroy(true, { children: true })
@@ -357,6 +414,12 @@ export function WorldCanvas({
       cleanup()
     }
   }, [])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    if (!runtime) return
+    drawBrushPreview(runtime, tool, brushPointRef.current)
+  }, [tool])
 
   useEffect(() => {
     const runtime = runtimeRef.current

@@ -26,6 +26,7 @@ type IconName =
   | 'close'
   | 'seed'
   | 'chevron'
+  | 'undo'
 
 function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -44,6 +45,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     close: <path d="m6 6 12 12M18 6 6 18"/>,
     seed: <><path d="M12 21V9"/><path d="M12 14c-5 0-7-3-7-7 5 0 7 3 7 7ZM12 11c4 0 6-2 6-6-4 0-6 2-6 6Z"/></>,
     chevron: <path d="m9 18 6-6-6-6"/>,
+    undo: <><path d="M9 7 4 12l5 5"/><path d="M5 12h8a6 6 0 0 1 6 6"/></>,
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -80,6 +82,16 @@ function GeneBar({ label, value, min, max }: { label: string; value: number; min
   )
 }
 
+const BEHAVIOUR_COPY: Record<WorldState['creatures'][number]['behaviour'], string> = {
+  wander: 'Exploring nearby habitat for its next opportunity.',
+  forage: 'Seeking food because its energy reserve is falling.',
+  drink: 'Heading to the shoreline because water is its most urgent need.',
+  flee: 'Escaping a hunter it can currently perceive.',
+  hunt: 'Tracking prey to restore its energy reserve.',
+  mate: 'Seeking a compatible partner for the next generation.',
+  rest: 'Conserving energy while no need is immediately critical.',
+}
+
 function App() {
   const [world, setWorld] = useState<WorldState | null>(null)
   const [speed, setSpeed] = useState<SimSpeed>(1)
@@ -88,8 +100,11 @@ function App() {
   const [seedDialog, setSeedDialog] = useState(false)
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
   const [saved, setSaved] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
   const workerRef = useRef<Worker | null>(null)
   const worldRef = useRef<WorldState | null>(null)
+  const dialogReturnSpeedRef = useRef<SimSpeed>(1)
+  const toolReturnSpeedRef = useRef<SimSpeed>(1)
 
   worldRef.current = world
   const selected = useMemo(
@@ -104,6 +119,7 @@ function App() {
     workerRef.current = worker
     worker.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
       setWorld(event.data.world)
+      setCanUndo(event.data.canUndo)
       if (event.data.type === 'snapshot') setSpeed(event.data.speed)
     })
     void loadWorld().then((restored) => {
@@ -151,7 +167,46 @@ function App() {
     setTool('inspect')
     setSeedDialog(false)
     send({ type: 'reset', seed: nextSeed })
+    changeSpeed(dialogReturnSpeedRef.current)
   }
+  const openSeedDialog = () => {
+    if (seedDialog) return
+    dialogReturnSpeedRef.current = tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    setTool('inspect')
+    setSeedDialog(true)
+    changeSpeed(0)
+  }
+  const closeSeedDialog = () => {
+    setSeedDialog(false)
+    changeSpeed(dialogReturnSpeedRef.current)
+  }
+  const finishCreation = () => {
+    setTool('inspect')
+    changeSpeed(toolReturnSpeedRef.current)
+  }
+  const chooseTool = (nextTool: CreationTool) => {
+    setSelectedId(null)
+    if (nextTool === 'inspect') {
+      if (tool !== 'inspect') finishCreation()
+      return
+    }
+    if (tool === 'inspect') {
+      toolReturnSpeedRef.current = speed
+      changeSpeed(0)
+    }
+    setTool(nextTool)
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (seedDialog) closeSeedDialog()
+      else if (tool !== 'inspect') finishCreation()
+      else if (selectedId !== null) setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [seedDialog, selectedId, tool])
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void document.documentElement.requestFullscreen?.()
@@ -162,6 +217,16 @@ function App() {
   const seasonNames = ['New Growth', 'High Sun', 'Amberfall', 'Long Rain']
   const season = world ? seasonNames[Math.floor(world.day / 7) % seasonNames.length] : 'New Growth'
   const population = (world?.stats.grazers ?? 0) + (world?.stats.hunters ?? 0)
+  const foodWebLabel = world?.stats.status ?? 'balanced'
+  const peers = selected
+    ? world?.creatures.filter((creature) => creature.kind === selected.kind) ?? []
+    : []
+  const averagePeerSpeed = peers.length
+    ? peers.reduce((total, creature) => total + creature.genes.speed, 0) / peers.length
+    : 0
+  const speedDifference = selected && averagePeerSpeed
+    ? Math.round((selected.genes.speed / averagePeerSpeed - 1) * 100)
+    : 0
 
   return (
     <main className={`terrarium ${tool !== 'inspect' ? 'is-creating' : ''}`}>
@@ -171,10 +236,11 @@ function App() {
         tool={tool}
         onSelect={setSelectedId}
         onWorldAction={(action, x, y) => send({ type: 'world-action', action, x, y, radius: 58 })}
+        onOneShotComplete={finishCreation}
       />
 
       <header className="topbar">
-        <button className="brand glass" type="button" onClick={() => setSeedDialog(true)} aria-label="Create a new world">
+        <button className="brand glass" type="button" onClick={openSeedDialog} aria-label="Create a new world">
           <span className="brand-mark"><Icon name="leaf" size={20} /></span>
           <span><strong>EvoTerrarium</strong><small>Living world lab</small></span>
           <Icon name="chevron" size={14} />
@@ -190,7 +256,7 @@ function App() {
         <div className="top-actions">
           <span className={`save-state ${saved ? 'visible' : ''}`}>Saved</span>
           <button className="icon-button glass" type="button" onClick={fullscreen} aria-label="Toggle fullscreen"><Icon name="expand" /></button>
-          <button className="new-world glass" type="button" onClick={() => setSeedDialog(true)}><Icon name="seed"/><span>New world</span></button>
+          <button className="new-world glass" type="button" onClick={openSeedDialog}><Icon name="seed"/><span>New world</span></button>
         </div>
       </header>
 
@@ -201,7 +267,7 @@ function App() {
             key={item.id}
             type="button"
             className={`${tool === item.id ? 'active' : ''} ${item.tone ?? ''}`}
-            onClick={() => setTool(item.id)}
+            onClick={() => chooseTool(item.id)}
             aria-label={item.label}
             aria-pressed={tool === item.id}
           >
@@ -215,6 +281,8 @@ function App() {
         <div><small>YEAR {year}</small><strong>Day {day}</strong></div>
         <i/>
         <div><small>SEASON</small><strong>{season}</strong></div>
+        <i/>
+        <div className={`food-web ${foodWebLabel}`}><small>FOOD WEB</small><strong>{foodWebLabel}</strong></div>
         <span className="weather-orb" aria-hidden="true"/>
       </section>
 
@@ -232,10 +300,21 @@ function App() {
           <button className="card-close" type="button" onClick={() => setSelectedId(null)} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
           <div className="creature-title"><small>{selected.kind.toUpperCase()} · #{selected.id}</small><h2>{selected.species}</h2><p>Generation {selected.generation} · {selected.behaviour}</p></div>
+          <div className="creature-insight">
+            <strong>{selected.behaviour === 'rest' ? 'Resting' : `${selected.behaviour[0].toUpperCase()}${selected.behaviour.slice(1)}`}</strong>
+            <p>{BEHAVIOUR_COPY[selected.behaviour]}</p>
+            <small>{Math.abs(speedDifference) < 3 ? 'Moves near the species average.' : `${Math.abs(speedDifference)}% ${speedDifference > 0 ? 'faster' : 'slower'} than its living peers.`}</small>
+          </div>
           <div className="vitals">
             <div><span>ENERGY</span><strong>{Math.round(selected.energy)}%</strong><i><b style={{ width: `${selected.energy}%` }}/></i></div>
+            <div className="hydration"><span>WATER</span><strong>{Math.round(selected.hydration)}%</strong><i><b style={{ width: `${selected.hydration}%` }}/></i></div>
             <div><span>HEALTH</span><strong>{Math.round(selected.health)}%</strong><i><b style={{ width: `${selected.health}%` }}/></i></div>
             <div><span>AGE</span><strong>{selected.age.toFixed(1)}d</strong><i><b style={{ width: `${Math.min(100, selected.age / selected.maxAge * 100)}%` }}/></i></div>
+          </div>
+          <div className="life-history" aria-label="Creature life history">
+            <span><strong>{selected.meals}</strong> meals</span>
+            <span><strong>{selected.drinks}</strong> drinks</span>
+            {selected.kind === 'hunter' && <span><strong>{selected.kills}</strong> hunts</span>}
           </div>
           <div className="gene-panel">
             <div className="section-heading"><span>INHERITED TRAITS</span><small>{selected.parents ? '2 parents' : 'Founding life'}</small></div>
@@ -258,14 +337,23 @@ function App() {
         <div className="population"><small>LIVING</small><strong>{population}</strong></div>
       </section>
 
-      <div className="gesture-hint"><span>{tool === 'inspect' ? 'Drag to explore · Pinch or scroll to zoom' : `Paint ${TOOLS.find((item) => item.id === tool)?.label.toLowerCase()} directly onto the world`}</span></div>
+      {tool !== 'inspect' && (
+        <section className="tool-status glass" role="status" aria-live="polite">
+          <span className={`tool-swatch ${tool}`}><Icon name={TOOLS.find((item) => item.id === tool)?.icon ?? 'cursor'} size={16}/></span>
+          <div><small>WORLD PAUSED · CREATION TOOL</small><strong>{TOOLS.find((item) => item.id === tool)?.label}</strong><p>Tap to apply · Drag to explore · Esc to finish</p></div>
+          <button type="button" onClick={() => send({ type: 'undo' })} disabled={!canUndo} aria-label="Undo last world change"><Icon name="undo" size={16}/><span>Undo</span></button>
+          <button type="button" onClick={finishCreation}>Done</button>
+        </section>
+      )}
+
+      <div className="gesture-hint"><span>{tool === 'inspect' ? 'Drag to explore · Pinch or scroll to zoom' : 'Tap to apply · Drag still moves the world'}</span></div>
 
       {!world && <div className="loading"><span className="loading-leaf"><Icon name="leaf" size={28}/></span><strong>Growing your world…</strong></div>}
 
       {seedDialog && (
-        <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSeedDialog(false) }}>
+        <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeSeedDialog() }}>
           <section className="seed-dialog" role="dialog" aria-modal="true" aria-labelledby="seed-title">
-            <button className="card-close" type="button" onClick={() => setSeedDialog(false)} aria-label="Close"><Icon name="close"/></button>
+            <button className="card-close" type="button" onClick={closeSeedDialog} aria-label="Close"><Icon name="close"/></button>
             <span className="dialog-mark"><Icon name="seed" size={25}/></span>
             <small>GENESIS LAB</small>
             <h2 id="seed-title">Begin another living world</h2>
@@ -273,7 +361,7 @@ function App() {
             <label htmlFor="world-seed">WORLD SEED</label>
             <div className="seed-input"><Icon name="spark" size={17}/><input id="world-seed" value={seedDraft} onChange={(event) => setSeedDraft(event.target.value)} autoFocus/><button type="button" onClick={() => setSeedDraft(makeSeed())}>Randomise</button></div>
             <button className="begin-button" type="button" onClick={createWorld}>Grow this world <Icon name="chevron"/></button>
-            <small className="dialog-note">Your current world is auto-saved on this device.</small>
+            <small className="dialog-note"><strong>World paused while choosing.</strong> Your current world is auto-saved on this device.</small>
           </section>
         </div>
       )}
@@ -282,4 +370,3 @@ function App() {
 }
 
 export default App
-
