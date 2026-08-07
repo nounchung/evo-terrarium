@@ -127,15 +127,19 @@ describe('SimulationEngine', () => {
 
   it('adds R1 lifecycle fields when restoring an R0 snapshot', () => {
     const saved = new SimulationEngine('LEGACY-1180').snapshot()
-    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy'> & {
+    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId'> & {
       creatures: Array<Partial<Creature>>
       stats: Partial<WorldState['stats']>
       deathRecords?: WorldState['deathRecords']
       genealogy?: WorldState['genealogy']
+      species?: WorldState['species']
+      nextSpeciesId?: number
     }
     const legacy = structuredClone(saved) as unknown as LegacySnapshot
     delete legacy.deathRecords
     delete legacy.genealogy
+    delete legacy.species
+    delete legacy.nextSpeciesId
     delete legacy.stats.deathsByCause
     delete legacy.stats.averageHydration
     delete legacy.stats.status
@@ -149,6 +153,7 @@ describe('SimulationEngine', () => {
       delete creature.lastAttackTick
       delete creature.bornDay
       delete creature.mutations
+      delete creature.speciesId
     }
 
     const restored = new SimulationEngine(
@@ -160,6 +165,8 @@ describe('SimulationEngine', () => {
     expect(restored.creatures[0].drinks).toBe(0)
     expect(restored.deathRecords).toEqual([])
     expect(restored.genealogy).toHaveLength(restored.creatures.length)
+    expect(restored.species).toHaveLength(2)
+    expect(restored.nextSpeciesId).toBe(3)
     expect(restored.stats.deathsByCause).toEqual({
       predation: 0,
       starvation: 0,
@@ -212,5 +219,47 @@ describe('SimulationEngine', () => {
 
     const restored = new SimulationEngine(world.seed, world).snapshot()
     expect(restored.genealogy).toEqual(world.genealogy)
+  })
+
+  it('creates a deterministic species when a compatible population diverges', () => {
+    const run = () => {
+      const engine = new SimulationEngine('SPECIATION-5518')
+      const grazers = engine.state.creatures.filter((creature) => creature.kind === 'grazer').slice(0, 8)
+      const anchor = grazers[0]
+      const divergentGenes = {
+        speed: 70,
+        vision: 225,
+        size: 1.55,
+        metabolism: 0.55,
+        fertility: 1.5,
+        hue: 35,
+      }
+      for (const grazer of grazers) {
+        grazer.x = anchor.x
+        grazer.y = anchor.y
+        grazer.targetX = anchor.x
+        grazer.targetY = anchor.y
+        grazer.generation = 5
+        grazer.genes = { ...divergentGenes }
+        grazer.energy = 96
+        grazer.hydration = 96
+        grazer.age = 10
+        grazer.reproductionCooldown = 0
+        grazer.decisionTimer = 0
+      }
+      engine.state.creatures = grazers
+      for (let step = 0; step < 12; step += 1) engine.step(0.05)
+      return engine.snapshot()
+    }
+
+    const first = run()
+    const second = run()
+    const emerged = first.species.filter((record) => record.parentSpeciesId !== null)
+
+    expect(emerged).toHaveLength(1)
+    expect(emerged[0].founderId).not.toBeNull()
+    expect(emerged[0].population).toBeGreaterThan(0)
+    expect(first.events.some((event) => event.kind === 'speciation')).toBe(true)
+    expect(second.species).toEqual(first.species)
   })
 })

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import { WorldCanvas } from './components/WorldCanvas'
 import { LineagePanel } from './components/LineagePanel'
+import { SpeciesCodex } from './components/SpeciesCodex'
 import { loadWorld, saveWorld } from './simulation/storage'
 import type {
   CreationTool,
@@ -99,6 +100,8 @@ function App() {
   const [tool, setTool] = useState<CreationTool>('inspect')
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [lineageOpen, setLineageOpen] = useState(false)
+  const [speciesOpen, setSpeciesOpen] = useState(false)
+  const [selectedSpeciesId, setSelectedSpeciesId] = useState(1)
   const [seedDialog, setSeedDialog] = useState(false)
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
   const [saved, setSaved] = useState(false)
@@ -108,6 +111,7 @@ function App() {
   const dialogReturnSpeedRef = useRef<SimSpeed>(1)
   const toolReturnSpeedRef = useRef<SimSpeed>(1)
   const lineageReturnSpeedRef = useRef<SimSpeed>(1)
+  const speciesReturnSpeedRef = useRef<SimSpeed>(1)
 
   worldRef.current = world
   const selected = useMemo(
@@ -161,10 +165,10 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (selectedId && world && !lineageOpen && !world.creatures.some((creature) => creature.id === selectedId)) {
+    if (selectedId && world && !lineageOpen && !speciesOpen && !world.creatures.some((creature) => creature.id === selectedId)) {
       setSelectedId(null)
     }
-  }, [lineageOpen, selectedId, world])
+  }, [lineageOpen, selectedId, speciesOpen, world])
 
   const send = (command: WorkerCommand) => workerRef.current?.postMessage(command)
   const changeSpeed = (nextSpeed: SimSpeed) => {
@@ -176,6 +180,7 @@ function App() {
     setSeedDraft(nextSeed)
     setSelectedId(null)
     setLineageOpen(false)
+    setSpeciesOpen(false)
     setTool('inspect')
     setSeedDialog(false)
     send({ type: 'reset', seed: nextSeed })
@@ -183,11 +188,14 @@ function App() {
   }
   const openSeedDialog = () => {
     if (seedDialog) return
-    dialogReturnSpeedRef.current = lineageOpen
-      ? lineageReturnSpeedRef.current
-      : tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    dialogReturnSpeedRef.current = speciesOpen
+      ? speciesReturnSpeedRef.current
+      : lineageOpen
+        ? lineageReturnSpeedRef.current
+        : tool === 'inspect' ? speed : toolReturnSpeedRef.current
     setTool('inspect')
     setLineageOpen(false)
+    setSpeciesOpen(false)
     setSeedDialog(true)
     changeSpeed(0)
   }
@@ -201,9 +209,10 @@ function App() {
   }
   const openLineage = (id: number) => {
     if (!lineageOpen) {
-      lineageReturnSpeedRef.current = speed
+      lineageReturnSpeedRef.current = speciesOpen ? speciesReturnSpeedRef.current : speed
       changeSpeed(0)
     }
+    setSpeciesOpen(false)
     setSelectedId(id)
     setLineageOpen(true)
   }
@@ -214,10 +223,30 @@ function App() {
     }
     changeSpeed(lineageReturnSpeedRef.current)
   }
+  const openSpecies = () => {
+    speciesReturnSpeedRef.current = lineageOpen
+      ? lineageReturnSpeedRef.current
+      : tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    setLineageOpen(false)
+    setTool('inspect')
+    const newestLiving = [...(worldRef.current?.species ?? [])]
+      .filter((record) => record.population > 0)
+      .sort((a, b) => b.id - a.id)[0]
+    setSelectedSpeciesId(newestLiving?.id ?? 1)
+    setSpeciesOpen(true)
+    changeSpeed(0)
+  }
+  const closeSpecies = () => {
+    setSpeciesOpen(false)
+    changeSpeed(speciesReturnSpeedRef.current)
+  }
   const chooseTool = (nextTool: CreationTool) => {
     setSelectedId(null)
-    const speedBeforeTool = lineageOpen ? lineageReturnSpeedRef.current : speed
+    const speedBeforeTool = speciesOpen
+      ? speciesReturnSpeedRef.current
+      : lineageOpen ? lineageReturnSpeedRef.current : speed
     setLineageOpen(false)
+    setSpeciesOpen(false)
     if (nextTool === 'inspect') {
       if (tool !== 'inspect') finishCreation()
       return
@@ -233,6 +262,10 @@ function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (seedDialog) closeSeedDialog()
+      else if (speciesOpen) {
+        setSpeciesOpen(false)
+        changeSpeed(speciesReturnSpeedRef.current)
+      }
       else if (tool !== 'inspect') finishCreation()
       else if (lineageOpen) {
         setLineageOpen(false)
@@ -245,7 +278,7 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [lineageOpen, seedDialog, selectedId, tool])
+  }, [lineageOpen, seedDialog, selectedId, speciesOpen, tool])
   const fullscreen = () => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void document.documentElement.requestFullscreen?.()
@@ -257,6 +290,7 @@ function App() {
   const season = world ? seasonNames[Math.floor(world.day / 7) % seasonNames.length] : 'New Growth'
   const population = (world?.stats.grazers ?? 0) + (world?.stats.hunters ?? 0)
   const foodWebLabel = world?.stats.status ?? 'balanced'
+  const livingSpecies = world?.species.filter((record) => record.population > 0).length ?? 0
   const peers = selected
     ? world?.creatures.filter((creature) => creature.kind === selected.kind) ?? []
     : []
@@ -305,6 +339,7 @@ function App() {
           <div><span className="stat-dot hunter"/><strong>{world?.stats.hunters ?? '—'}</strong><small>Hunters</small></div>
           <div className="desktop-stat"><span className="stat-dot plant"/><strong>{world?.stats.plants ?? '—'}</strong><small>Plants</small></div>
           <button className="lineage-stat" type="button" onClick={browseLatestLineage} disabled={!latestCreature} aria-label="Browse latest lineage"><Icon name="spark" size={15}/><strong>G{world?.stats.maxGeneration ?? 1}</strong><small>Generation</small></button>
+          <button className="species-stat" type="button" onClick={openSpecies} disabled={!world} aria-label="Open species codex"><Icon name="leaf" size={15}/><strong>{livingSpecies}</strong><small>Species</small></button>
         </section>
 
         <div className="top-actions">
@@ -340,16 +375,16 @@ function App() {
         <span className="weather-orb" aria-hidden="true"/>
       </section>
 
-      <aside className="event-feed" aria-label="Recent world events">
+      {!lineageOpen && !speciesOpen && <aside className="event-feed" aria-label="Recent world events">
         {(world?.events ?? []).slice(0, 3).map((event, index) => (
           <article key={event.id} className={`event-card glass ${index > 1 ? 'minor' : ''}`}>
             <span className={`event-symbol ${event.kind}`}><Icon name={event.kind === 'death' ? 'hunter' : event.kind === 'player' ? 'seed' : 'spark'} size={15}/></span>
             <div><small>DAY {Math.floor(event.day)}</small><strong>{event.title}</strong><p>{event.detail}</p></div>
           </article>
         ))}
-      </aside>
+      </aside>}
 
-      {selected && !lineageOpen && (
+      {selected && !lineageOpen && !speciesOpen && (
         <aside className="creature-card glass" aria-label="Selected creature details">
           <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
@@ -389,6 +424,20 @@ function App() {
           livingIds={livingIds}
           onClose={closeLineage}
           onSelectLiving={(id) => setSelectedId(id)}
+        />
+      )}
+
+      {speciesOpen && world && (
+        <SpeciesCodex
+          world={world}
+          selectedId={selectedSpeciesId}
+          onSelect={setSelectedSpeciesId}
+          onClose={closeSpecies}
+          onViewFounder={(id) => {
+            setSpeciesOpen(false)
+            setSelectedId(id)
+            changeSpeed(speciesReturnSpeedRef.current)
+          }}
         />
       )}
 

@@ -1,7 +1,7 @@
 # Simulation Design Spec
 
-Status: R2 genealogy foundation, version 3
-Decision: R1 Design Gate approved; R2 inheritance and lineage implemented for validation
+Status: R3 speciation foundation, version 4
+Decision: R1 Design Gate approved; R2 inheritance and R3 deterministic species tracking implemented
 
 ## 1. Experience contract
 
@@ -102,7 +102,7 @@ Creatures, plants and cached shoreline drinking points are bucketed into 120-uni
 - Age, starvation, dehydration and predation are explicit death paths stored in a bounded death ledger.
 - Predator attacks use cooldowns so contact does not apply damage every AI decision tick.
 
-R3 will use accumulated genetic distance and common ancestry to model deterministic speciation.
+Reproductive compatibility uses normalized genetic distance. From generation five, a sufficiently populous lineage whose inherited signature crosses the speciation threshold creates a deterministic species record. Each record stores a founding signature, parent species, founder, population samples, peak population and extinction day. The number of living species per trophic kind is bounded to prevent uninformative fragmentation.
 
 ## 9. Persistence and compatibility
 
