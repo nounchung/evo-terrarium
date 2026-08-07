@@ -30,3 +30,7 @@ R2 makes evolution inspectable across living and dead organisms without changing
 2. Can a player distinguish living and dead ancestors?
 3. Do mutations explain a visible difference rather than present raw data only?
 4. Does the panel preserve the world-first layout and remain usable on mobile?
+
+## Design Gate correction
+
+The first deployed review showed the organism card and event feed through the genealogy glass, producing overlapping text. The final gate hides the organism card while genealogy is open and gives the genealogy surface an opaque layered background; the ecosystem remains visible across the other two thirds of the screen.

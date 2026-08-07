@@ -349,7 +349,7 @@ function App() {
         ))}
       </aside>
 
-      {selected && (
+      {selected && !lineageOpen && (
         <aside className="creature-card glass" aria-label="Selected creature details">
           <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
