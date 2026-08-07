@@ -23,6 +23,16 @@ export interface Genes {
   hue: number
 }
 
+export type GeneKey = keyof Genes
+
+export interface MutationRecord {
+  gene: GeneKey
+  inheritedValue: number
+  value: number
+  changePercent: number
+  significant: boolean
+}
+
 export interface Creature extends Point {
   id: number
   kind: CreatureKind
@@ -35,6 +45,8 @@ export interface Creature extends Point {
   maxAge: number
   generation: number
   genes: Genes
+  mutations: MutationRecord[]
+  bornDay: number
   parents: [number, number] | null
   children: number[]
   behaviour: Behaviour
@@ -61,9 +73,23 @@ export interface Plant extends Point {
 export interface WorldEvent {
   id: number
   day: number
-  kind: 'birth' | 'death' | 'milestone' | 'player'
+  kind: 'birth' | 'death' | 'milestone' | 'mutation' | 'player'
   title: string
   detail: string
+}
+
+export interface LineageRecord {
+  id: number
+  kind: CreatureKind
+  species: string
+  generation: number
+  genes: Genes | null
+  mutations: MutationRecord[]
+  parents: [number, number] | null
+  children: number[]
+  bornDay: number
+  diedDay: number | null
+  deathCause: DeathCause | null
 }
 
 export interface DeathRecord {
@@ -106,6 +132,7 @@ export interface WorldState {
   plants: Plant[]
   events: WorldEvent[]
   deathRecords: DeathRecord[]
+  genealogy: LineageRecord[]
   day: number
   tick: number
   rngState: number

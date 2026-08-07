@@ -38,3 +38,17 @@ test('keeps drag for exploration while a creation tool is armed', async ({ page 
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeHidden()
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
 })
+
+test('opens the latest living genealogy from world statistics', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
+  await expect(page.getByRole('button', { name: 'Browse latest lineage' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Browse latest lineage' }).click()
+  await expect(page.getByRole('complementary', { name: /Genealogy of/ })).toBeVisible()
+  await expect(page.getByText(/WORLD PAUSED · GENEALOGY/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
+  await expect(page.getByRole('heading', { name: 'Family line' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Inherited change' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close genealogy' }).click()
+  await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
+})

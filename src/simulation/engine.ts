@@ -10,7 +10,10 @@ import {
   type DeathCause,
   type DeathCounts,
   type EcosystemStatus,
+  type GeneKey,
   type Genes,
+  type LineageRecord,
+  type MutationRecord,
   type Plant,
   type Point,
   type WorldEvent,
@@ -97,7 +100,48 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     kills: creature.kills ?? 0,
     lastAttackerId: creature.lastAttackerId ?? null,
     lastAttackTick: creature.lastAttackTick ?? -1,
+    bornDay: creature.bornDay ?? Math.max(0, cloned.day - creature.age * 10),
+    mutations: creature.mutations ?? [],
   }))
+  const existingGenealogy = cloned.genealogy ?? []
+  const genealogyById = new Map(existingGenealogy.map((record) => [record.id, record]))
+  for (const creature of creatures) {
+    if (genealogyById.has(creature.id)) continue
+    genealogyById.set(creature.id, {
+      id: creature.id,
+      kind: creature.kind,
+      species: creature.species,
+      generation: creature.generation,
+      genes: structuredClone(creature.genes),
+      mutations: structuredClone(creature.mutations),
+      parents: creature.parents,
+      children: [...creature.children],
+      bornDay: creature.bornDay,
+      diedDay: null,
+      deathCause: null,
+    })
+  }
+  for (const death of cloned.deathRecords ?? []) {
+    const current = genealogyById.get(death.creatureId)
+    if (current) {
+      current.diedDay = death.day
+      current.deathCause = death.cause
+      continue
+    }
+    genealogyById.set(death.creatureId, {
+      id: death.creatureId,
+      kind: death.kind,
+      species: death.species,
+      generation: death.generation,
+      genes: null,
+      mutations: [],
+      parents: null,
+      children: [],
+      bornDay: 0,
+      diedDay: death.day,
+      deathCause: death.cause,
+    })
+  }
   const averageHydration = creatures.length
     ? creatures.reduce((total, creature) => total + creature.hydration, 0) / creatures.length
     : 0
@@ -105,6 +149,7 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     ...cloned,
     creatures,
     deathRecords: cloned.deathRecords ?? [],
+    genealogy: [...genealogyById.values()],
     stats: {
       ...cloned.stats,
       kills: cloned.stats.kills ?? 0,
@@ -144,6 +189,7 @@ export class SimulationEngine {
         plants: [],
         events: [],
         deathRecords: [],
+        genealogy: [],
         day: 1,
         tick: 0,
         rngState: this.random.state,
@@ -307,6 +353,7 @@ export class SimulationEngine {
     genes?: Genes,
     generation = 1,
     parents: [number, number] | null = null,
+    mutations: MutationRecord[] = [],
   ): Creature | null {
     if (this.state.creatures.length >= MAX_CREATURES) return null
     const location = this.landPoint(point)
@@ -324,6 +371,8 @@ export class SimulationEngine {
       maxAge: kind === 'grazer' ? this.random.range(34, 48) : this.random.range(44, 62),
       generation,
       genes: genes ?? this.baseGenes(kind),
+      mutations,
+      bornDay: this.state.day,
       parents,
       children: [],
       behaviour: 'wander',
@@ -339,6 +388,20 @@ export class SimulationEngine {
       lastAttackTick: -1,
     }
     this.state.creatures.push(creature)
+    const lineage: LineageRecord = {
+      id: creature.id,
+      kind: creature.kind,
+      species: creature.species,
+      generation: creature.generation,
+      genes: structuredClone(creature.genes),
+      mutations: structuredClone(creature.mutations),
+      parents: creature.parents,
+      children: [],
+      bornDay: creature.bornDay,
+      diedDay: null,
+      deathCause: null,
+    }
+    this.state.genealogy.push(lineage)
     return creature
   }
 
@@ -347,30 +410,39 @@ export class SimulationEngine {
     return clamp(value * (1 + this.random.range(-amount, amount)), min, max)
   }
 
-  private inherit(a: Creature, b: Creature): Genes {
+  private inherit(a: Creature, b: Creature): { genes: Genes; mutations: MutationRecord[] } {
     const choose = (first: number, second: number) =>
       this.random.chance(0.5) ? first : second
+    const mutations: MutationRecord[] = []
+    const inherited = (gene: GeneKey, amount: number, min: number, max: number) => {
+      const inheritedValue = choose(a.genes[gene], b.genes[gene])
+      const value = gene === 'hue'
+        ? clamp(inheritedValue + (this.random.chance(0.3) ? this.random.range(-8, 8) : 0), min, max)
+        : this.mutate(inheritedValue, amount, min, max)
+      if (Math.abs(value - inheritedValue) > 0.0001) {
+        const changePercent = inheritedValue === 0
+          ? Math.abs(value - inheritedValue) * 10
+          : Math.abs((value - inheritedValue) / inheritedValue) * 100
+        mutations.push({
+          gene,
+          inheritedValue,
+          value,
+          changePercent,
+          significant: gene === 'hue' ? Math.abs(value - inheritedValue) >= 4 : changePercent >= 5,
+        })
+      }
+      return value
+    }
     return {
-      speed: this.mutate(choose(a.genes.speed, b.genes.speed), 0.1, 24, 78),
-      vision: this.mutate(choose(a.genes.vision, b.genes.vision), 0.12, 55, 240),
-      size: this.mutate(choose(a.genes.size, b.genes.size), 0.08, 0.58, 1.7),
-      metabolism: this.mutate(
-        choose(a.genes.metabolism, b.genes.metabolism),
-        0.08,
-        0.45,
-        1.8,
-      ),
-      fertility: this.mutate(
-        choose(a.genes.fertility, b.genes.fertility),
-        0.1,
-        0.45,
-        1.6,
-      ),
-      hue: clamp(
-        choose(a.genes.hue, b.genes.hue) + (this.random.chance(0.3) ? this.random.range(-8, 8) : 0),
-        -40,
-        40,
-      ),
+      genes: {
+        speed: inherited('speed', 0.1, 24, 78),
+        vision: inherited('vision', 0.12, 55, 240),
+        size: inherited('size', 0.08, 0.58, 1.7),
+        metabolism: inherited('metabolism', 0.08, 0.45, 1.8),
+        fertility: inherited('fertility', 0.1, 0.45, 1.6),
+        hue: inherited('hue', 0, -40, 40),
+      },
+      mutations,
     }
   }
 
@@ -406,15 +478,17 @@ export class SimulationEngine {
     const litterSize = a.kind === 'hunter' && currentPopulation <= 4 ? 2 : 1
     const children: Creature[] = []
     for (let index = 0; index < Math.min(litterSize, available); index += 1) {
+      const inheritance = this.inherit(a, b)
       const child = this.spawnCreature(
         a.kind,
         {
           x: (a.x + b.x) / 2 + this.random.range(-7, 7),
           y: (a.y + b.y) / 2 + this.random.range(-7, 7),
         },
-        this.inherit(a, b),
+        inheritance.genes,
         generation,
         [a.id, b.id],
+        inheritance.mutations,
       )
       if (child) children.push(child)
     }
@@ -422,6 +496,19 @@ export class SimulationEngine {
     for (const child of children) {
       a.children.push(child.id)
       b.children.push(child.id)
+      for (const parent of [a, b]) {
+        const record = this.state.genealogy.find((entry) => entry.id === parent.id)
+        if (record && !record.children.includes(child.id)) record.children.push(child.id)
+      }
+      const important = child.mutations.filter((mutation) => mutation.significant)
+      if (important.length > 0) {
+        const traits = important.map((mutation) => mutation.gene).join(', ')
+        this.addEvent(
+          'mutation',
+          'A notable mutation appears',
+          `${child.species} #${child.id} differs strongly in ${traits}.`,
+        )
+      }
     }
     a.energy -= 22 + (children.length - 1) * 5
     b.energy -= 18 + (children.length - 1) * 4
@@ -725,6 +812,11 @@ export class SimulationEngine {
       killerId: cause === 'predation' ? creature.lastAttackerId : null,
     })
     this.state.deathRecords = this.state.deathRecords.slice(0, 80)
+    const lineage = this.state.genealogy.find((record) => record.id === creature.id)
+    if (lineage) {
+      lineage.diedDay = this.state.day
+      lineage.deathCause = cause
+    }
 
     if (previousCount > 0) return
     const descriptions: Record<DeathCause, [string, string]> = {

@@ -4,7 +4,7 @@ Shape a world. Watch life adapt.
 
 EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the environment, introduce life and observe feeding, fear, hunting, reproduction, mutation and extinction emerge from deterministic simulation rules.
 
-## Current vertical slice (R1)
+## Current vertical slice (R2)
 
 - Seeded water, meadow, grass and forest generation
 - Autonomous plants, grazers and hunters
@@ -14,6 +14,9 @@ EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the e
 - Predator attack cooldowns, successful-hunt records and low-population mating calls
 - Dynamic carrying capacity that balances plants, grazers and hunters without scripted respawns
 - Two-parent gene crossover and mutation across generations
+- Durable genealogy across living and deceased organisms
+- Inspectable mutation history with notable-change markers
+- Gene-driven body colour, scale, ears, legs, tails and markings
 - Full-screen PixiJS rendering with pan, wheel zoom and pinch zoom
 - Touch-friendly creation tools for terrain, resources and creatures
 - Inspectable organisms with vitals, meals, drinks, hunts, lineage and inherited traits
@@ -37,7 +40,7 @@ npm run build
 
 The deterministic simulation engine contains no React or PixiJS code. A Web Worker advances it with a fixed timestep and sends serializable snapshots to the UI. React owns controls and overlays; PixiJS renders the living world; IndexedDB persists snapshots locally.
 
-See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md) and [R1 Validation](docs/r1-validation.md).
+See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md) and [R2 Validation](docs/r2-validation.md).
 
 ## Roadmap
 
