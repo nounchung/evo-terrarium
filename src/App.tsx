@@ -5,10 +5,20 @@ import { LineagePanel } from './components/LineagePanel'
 import { SpeciesCodex } from './components/SpeciesCodex'
 import { ClimatePanel } from './components/ClimatePanel'
 import { SocialLab } from './components/SocialLab'
-import { loadWorld, saveWorld } from './simulation/storage'
+import { ArchivePanel } from './components/ArchivePanel'
+import {
+  listSaveSlots,
+  loadWorld,
+  removeSaveSlot,
+  saveWorld,
+  writeSaveSlot,
+  type SaveSlot,
+} from './simulation/storage'
+import { parseWorldRecord, seedShareUrl, serializeWorldRecord } from './simulation/records'
 import type {
   CreationTool,
   DisasterType,
+  ReplayStatus,
   SimSpeed,
   WorkerCommand,
   WorkerMessage,
@@ -119,6 +129,10 @@ function App() {
   const [speciesOpen, setSpeciesOpen] = useState(false)
   const [climateOpen, setClimateOpen] = useState(false)
   const [labMode, setLabMode] = useState(false)
+  const [archiveOpen, setArchiveOpen] = useState(false)
+  const [saveSlots, setSaveSlots] = useState<SaveSlot[]>([])
+  const [archiveNotice, setArchiveNotice] = useState('')
+  const [replay, setReplay] = useState<ReplayStatus>({ active: false, currentTick: 0, maxTick: 0 })
   const [selectedSpeciesId, setSelectedSpeciesId] = useState(1)
   const [seedDialog, setSeedDialog] = useState(false)
   const [seedDraft, setSeedDraft] = useState('MOSS-1738')
@@ -130,8 +144,11 @@ function App() {
   const toolReturnSpeedRef = useRef<SimSpeed>(1)
   const lineageReturnSpeedRef = useRef<SimSpeed>(1)
   const speciesReturnSpeedRef = useRef<SimSpeed>(1)
+  const archiveReturnSpeedRef = useRef<SimSpeed>(1)
+  const replayRef = useRef(replay)
 
   worldRef.current = world
+  replayRef.current = replay
   const selected = useMemo(
     () => world?.creatures.find((creature) => creature.id === selectedId) ?? null,
     [selectedId, world],
@@ -153,17 +170,25 @@ function App() {
     worker.addEventListener('message', (event: MessageEvent<WorkerMessage>) => {
       setWorld(event.data.world)
       setCanUndo(event.data.canUndo)
-      if (event.data.type === 'snapshot') setSpeed(event.data.speed)
+      setSpeed(event.data.speed)
+      setReplay(event.data.replay)
+      if (replayRef.current.active && !event.data.replay.active) {
+        setArchiveNotice('Returned to the live world.')
+      } else if (event.data.replay.active) {
+        setArchiveNotice(`Replay rebuilt at tick ${event.data.replay.currentTick.toLocaleString()}.`)
+      }
     })
     void loadWorld().then((restored) => {
+      const sharedSeed = new URLSearchParams(window.location.search).get('seed')?.trim().slice(0, 80)
       const command: WorkerCommand = {
         type: 'init',
-        seed: restored?.seed ?? 'MOSS-1738',
-        restored,
+        seed: sharedSeed || restored?.seed || 'MOSS-1738',
+        restored: sharedSeed ? undefined : restored,
       }
       setSeedDraft(command.seed)
       worker.postMessage(command)
     })
+    void listSaveSlots().then(setSaveSlots)
     return () => {
       worker.terminate()
       workerRef.current = null
@@ -173,7 +198,7 @@ function App() {
   useEffect(() => {
     const interval = window.setInterval(() => {
       const current = worldRef.current
-      if (!current) return
+      if (!current || replayRef.current.active) return
       void saveWorld(current).then(() => {
         setSaved(true)
         window.setTimeout(() => setSaved(false), 1800)
@@ -193,6 +218,82 @@ function App() {
     setSpeed(nextSpeed)
     send({ type: 'speed', speed: nextSpeed })
   }
+  const leaveArchive = () => {
+    if (!archiveOpen) return
+    if (replay.active) send({ type: 'replay-exit' })
+    setArchiveOpen(false)
+    setArchiveNotice('')
+  }
+  const openArchive = () => {
+    if (archiveOpen) return
+    archiveReturnSpeedRef.current = speciesOpen
+      ? speciesReturnSpeedRef.current
+      : lineageOpen
+        ? lineageReturnSpeedRef.current
+        : tool === 'inspect' ? speed : toolReturnSpeedRef.current
+    setLineageOpen(false)
+    setSpeciesOpen(false)
+    setClimateOpen(false)
+    setLabMode(false)
+    setSelectedId(null)
+    setTool('inspect')
+    setArchiveNotice('')
+    setArchiveOpen(true)
+    changeSpeed(0)
+    void listSaveSlots().then(setSaveSlots)
+  }
+  const closeArchive = () => {
+    if (replay.active) send({ type: 'replay-exit' })
+    setArchiveOpen(false)
+    setArchiveNotice('')
+    changeSpeed(archiveReturnSpeedRef.current)
+  }
+  const saveNamedWorld = (name: string) => {
+    const current = worldRef.current
+    if (!current || replay.active) return
+    void writeSaveSlot(name, current).then((slot) => {
+      setSaveSlots((existing) => [slot, ...existing].slice(0, 6))
+      setArchiveNotice(`Saved “${slot.name}”.`)
+    }).catch(() => setArchiveNotice('This browser could not save the world.'))
+  }
+  const restoreSlot = (slot: SaveSlot) => {
+    setSeedDraft(slot.world.seed)
+    setArchiveNotice(`Restored “${slot.name}”.`)
+    send({ type: 'restore', world: slot.world })
+  }
+  const deleteSlot = (slot: SaveSlot) => {
+    void removeSaveSlot(slot.id).then(() => {
+      setSaveSlots((existing) => existing.filter((candidate) => candidate.id !== slot.id))
+      setArchiveNotice(`Deleted “${slot.name}”.`)
+    }).catch(() => setArchiveNotice('This save could not be deleted.'))
+  }
+  const exportWorld = (name: string, recordWorld: WorldState) => {
+    const blob = new Blob([serializeWorldRecord(name, recordWorld)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${recordWorld.seed.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'world'}.evo.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    setArchiveNotice('Portable world record exported.')
+  }
+  const importWorld = (file: File) => {
+    void file.text().then((text) => {
+      const record = parseWorldRecord(text)
+      setSeedDraft(record.world.seed)
+      send({ type: 'restore', world: record.world })
+      setArchiveNotice(`Imported “${record.name}”.`)
+    }).catch((error: unknown) => {
+      setArchiveNotice(error instanceof Error ? error.message : 'This world record could not be read.')
+    })
+  }
+  const copySeedLink = () => {
+    if (!worldRef.current) return
+    const url = seedShareUrl(worldRef.current.seed, window.location.href)
+    void navigator.clipboard.writeText(url)
+      .then(() => setArchiveNotice('Seed link copied.'))
+      .catch(() => setArchiveNotice(url))
+  }
   const createWorld = () => {
     const nextSeed = seedDraft.trim().toUpperCase() || makeSeed()
     setSeedDraft(nextSeed)
@@ -201,6 +302,7 @@ function App() {
     setSpeciesOpen(false)
     setClimateOpen(false)
     setLabMode(false)
+    setArchiveOpen(false)
     setTool('inspect')
     setSeedDialog(false)
     send({ type: 'reset', seed: nextSeed })
@@ -208,7 +310,9 @@ function App() {
   }
   const openSeedDialog = () => {
     if (seedDialog) return
-    dialogReturnSpeedRef.current = speciesOpen
+    dialogReturnSpeedRef.current = archiveOpen
+      ? archiveReturnSpeedRef.current
+      : speciesOpen
       ? speciesReturnSpeedRef.current
       : lineageOpen
         ? lineageReturnSpeedRef.current
@@ -218,6 +322,7 @@ function App() {
     setSpeciesOpen(false)
     setClimateOpen(false)
     setLabMode(false)
+    leaveArchive()
     setSeedDialog(true)
     changeSpeed(0)
   }
@@ -231,9 +336,12 @@ function App() {
   }
   const openLineage = (id: number) => {
     if (!lineageOpen) {
-      lineageReturnSpeedRef.current = speciesOpen ? speciesReturnSpeedRef.current : speed
+      lineageReturnSpeedRef.current = archiveOpen
+        ? archiveReturnSpeedRef.current
+        : speciesOpen ? speciesReturnSpeedRef.current : speed
       changeSpeed(0)
     }
+    leaveArchive()
     setSpeciesOpen(false)
     setClimateOpen(false)
     setLabMode(false)
@@ -248,12 +356,15 @@ function App() {
     changeSpeed(lineageReturnSpeedRef.current)
   }
   const openSpecies = () => {
-    speciesReturnSpeedRef.current = lineageOpen
+    speciesReturnSpeedRef.current = archiveOpen
+      ? archiveReturnSpeedRef.current
+      : lineageOpen
       ? lineageReturnSpeedRef.current
       : tool === 'inspect' ? speed : toolReturnSpeedRef.current
     setLineageOpen(false)
     setClimateOpen(false)
     setLabMode(false)
+    leaveArchive()
     setTool('inspect')
     const newestLiving = [...(worldRef.current?.species ?? [])]
       .filter((record) => record.population > 0)
@@ -270,11 +381,12 @@ function App() {
     setSelectedId(null)
     const speedBeforeTool = speciesOpen
       ? speciesReturnSpeedRef.current
-      : lineageOpen ? lineageReturnSpeedRef.current : speed
+      : lineageOpen ? lineageReturnSpeedRef.current : archiveOpen ? archiveReturnSpeedRef.current : speed
     setLineageOpen(false)
     setSpeciesOpen(false)
     setClimateOpen(false)
     setLabMode(false)
+    leaveArchive()
     if (nextTool === 'inspect') {
       if (tool !== 'inspect') finishCreation()
       return
@@ -290,6 +402,12 @@ function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (seedDialog) closeSeedDialog()
+      else if (archiveOpen) {
+        if (replay.active) send({ type: 'replay-exit' })
+        setArchiveOpen(false)
+        setArchiveNotice('')
+        changeSpeed(archiveReturnSpeedRef.current)
+      }
       else if (climateOpen) setClimateOpen(false)
       else if (labMode) setLabMode(false)
       else if (speciesOpen) {
@@ -308,9 +426,11 @@ function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [climateOpen, labMode, lineageOpen, seedDialog, selectedId, speciesOpen, tool])
+  }, [archiveOpen, climateOpen, labMode, lineageOpen, replay.active, seedDialog, selectedId, speciesOpen, tool])
   const openClimate = () => {
-    const returnSpeed = speciesOpen
+    const returnSpeed = archiveOpen
+      ? archiveReturnSpeedRef.current
+      : speciesOpen
       ? speciesReturnSpeedRef.current
       : lineageOpen
         ? lineageReturnSpeedRef.current
@@ -320,6 +440,7 @@ function App() {
     setTool('inspect')
     setClimateOpen(true)
     setLabMode(false)
+    leaveArchive()
     changeSpeed(returnSpeed)
   }
   const toggleLabMode = () => {
@@ -327,7 +448,9 @@ function App() {
       setLabMode(false)
       return
     }
-    const returnSpeed = speciesOpen
+    const returnSpeed = archiveOpen
+      ? archiveReturnSpeedRef.current
+      : speciesOpen
       ? speciesReturnSpeedRef.current
       : lineageOpen
         ? lineageReturnSpeedRef.current
@@ -335,6 +458,7 @@ function App() {
     setLineageOpen(false)
     setSpeciesOpen(false)
     setClimateOpen(false)
+    leaveArchive()
     setTool('inspect')
     setLabMode(true)
     changeSpeed(returnSpeed)
@@ -405,6 +529,7 @@ function App() {
 
         <div className="top-actions">
           <span className={`save-state ${saved ? 'visible' : ''}`}>Saved</span>
+          <button className={`icon-button glass archive-toggle ${archiveOpen ? 'active' : ''}`} type="button" onClick={openArchive} aria-label="Open World Archive"><Icon name="undo" /></button>
           <button className={`icon-button glass lab-toggle ${labMode ? 'active' : ''}`} type="button" onClick={toggleLabMode} aria-label="Toggle Social Lab"><Icon name="spark" /></button>
           <button className="icon-button glass" type="button" onClick={fullscreen} aria-label="Toggle fullscreen"><Icon name="expand" /></button>
           <button className="new-world glass" type="button" onClick={openSeedDialog}><Icon name="seed"/><span>New world</span></button>
@@ -437,7 +562,7 @@ function App() {
         <button className={`weather-orb ${world?.climate.dayPhase ?? 'day'}`} type="button" onClick={openClimate} aria-label="Open climate lab"><span>{world ? `${world.climate.temperature.toFixed(0)}°` : '—'}</span></button>
       </section>
 
-      {!lineageOpen && !speciesOpen && !climateOpen && !labMode && <aside className="event-feed" aria-label="Recent world events">
+      {!lineageOpen && !speciesOpen && !climateOpen && !labMode && !archiveOpen && <aside className="event-feed" aria-label="Recent world events">
         {(world?.events ?? []).slice(0, 3).map((event, index) => (
           <article key={event.id} className={`event-card glass ${index > 1 ? 'minor' : ''}`}>
             <span className={`event-symbol ${event.kind}`}><Icon name={event.kind === 'death' ? 'hunter' : event.kind === 'player' ? 'seed' : 'spark'} size={15}/></span>
@@ -446,7 +571,7 @@ function App() {
         ))}
       </aside>}
 
-      {selected && !lineageOpen && !speciesOpen && !climateOpen && !labMode && (
+      {selected && !lineageOpen && !speciesOpen && !climateOpen && !labMode && !archiveOpen && (
         <aside className="creature-card glass" aria-label="Selected creature details">
           <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
@@ -520,14 +645,33 @@ function App() {
         />
       )}
 
+      {archiveOpen && world && (
+        <ArchivePanel
+          world={world}
+          slots={saveSlots}
+          replay={replay}
+          notice={archiveNotice}
+          onClose={closeArchive}
+          onSave={saveNamedWorld}
+          onLoad={restoreSlot}
+          onDelete={deleteSlot}
+          onExport={exportWorld}
+          onImport={importWorld}
+          onCopySeed={copySeedLink}
+          onSeek={(tick) => { setArchiveNotice('Rebuilding from the founding seed…'); send({ type: 'replay-seek', tick }) }}
+          onReplayExit={() => { send({ type: 'replay-exit' }); setArchiveNotice('Returned to the live world.') }}
+          onReplaySpeed={changeSpeed}
+        />
+      )}
+
       <section className="time-controls glass" aria-label="Simulation speed">
         {SPEEDS.map((value) => (
-          <button key={value} type="button" className={speed === value ? 'active' : ''} onClick={() => changeSpeed(value)} aria-label={value === 0 ? 'Pause simulation' : `Run at ${value} times speed`}>
+          <button key={value} type="button" disabled={archiveOpen} className={speed === value ? 'active' : ''} onClick={() => changeSpeed(value)} aria-label={value === 0 ? 'Pause simulation' : `Run at ${value} times speed`}>
             {value === 0 ? <Icon name={speed === 0 ? 'play' : 'pause'} size={17}/> : `${value}×`}
           </button>
         ))}
         <span className="time-divider"/>
-        <div className="population"><small>LIVING</small><strong>{population}</strong></div>
+        <div className="population"><small>{replay.active ? 'REPLAY' : 'LIVING'}</small><strong>{population}</strong></div>
       </section>
 
       {tool !== 'inspect' && (

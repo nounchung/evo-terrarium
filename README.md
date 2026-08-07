@@ -4,7 +4,7 @@ Shape a world. Watch life adapt.
 
 EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the environment, introduce life and observe feeding, fear, hunting, reproduction, mutation and extinction emerge from deterministic simulation rules.
 
-## Current vertical slice (R5)
+## Current vertical slice (R6)
 
 - Seeded water, meadow, grass and forest generation
 - Autonomous plants, grazers and hunters
@@ -27,10 +27,15 @@ EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the e
 - Locally formed herds and packs with cohesion, leadership and pack territories
 - Resource-, climate- and threat-scored herd migration routes
 - Optional Social Lab for live group, territory, route and memory debugging
+- Versioned IndexedDB auto-save with six named world slots and v1 migrations
+- Deterministic tick-stamped player action log and seed-based timeline reconstruction
+- Durable ecological landmarks for replay navigation
+- Validated portable JSON world records with import and export
+- Shareable seed URLs that reproduce terrain and founding populations
 - Full-screen PixiJS rendering with pan, wheel zoom and pinch zoom
 - Touch-friendly creation tools for terrain, resources and creatures
 - Inspectable organisms with vitals, meals, drinks, hunts, lineage and inherited traits
-- Web Worker simulation and IndexedDB auto-save
+- Web Worker simulation and IndexedDB persistence
 
 ## Run locally
 
@@ -50,7 +55,7 @@ npm run build
 
 The deterministic simulation engine contains no React or PixiJS code. A Web Worker advances it with a fixed timestep and sends serializable snapshots to the UI. React owns controls and overlays; PixiJS renders the living world; IndexedDB persists snapshots locally.
 
-See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md), [R2 Validation](docs/r2-validation.md), [R3 Validation](docs/r3-validation.md), [R4 Validation](docs/r4-validation.md) and [R5 Validation](docs/r5-validation.md).
+See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md), [R2 Validation](docs/r2-validation.md), [R3 Validation](docs/r3-validation.md), [R4 Validation](docs/r4-validation.md), [R5 Validation](docs/r5-validation.md) and [R6 Validation](docs/r6-validation.md).
 
 ## Roadmap
 

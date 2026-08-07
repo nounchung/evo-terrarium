@@ -127,7 +127,8 @@ describe('SimulationEngine', () => {
 
   it('adds R1 lifecycle fields when restoring an R0 snapshot', () => {
     const saved = new SimulationEngine('LEGACY-1180').snapshot()
-    type LegacySnapshot = Omit<WorldState, 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId' | 'climate' | 'disasters' | 'groups' | 'territories' | 'migrations'> & {
+    type LegacySnapshot = Omit<WorldState, 'version' | 'creatures' | 'stats' | 'deathRecords' | 'genealogy' | 'species' | 'nextSpeciesId' | 'climate' | 'disasters' | 'groups' | 'territories' | 'migrations' | 'actionLog' | 'landmarks' | 'nextActionId'> & {
+      version: number
       creatures: Array<Partial<Creature>>
       stats: Partial<WorldState['stats']>
       deathRecords?: WorldState['deathRecords']
@@ -139,8 +140,12 @@ describe('SimulationEngine', () => {
       groups?: WorldState['groups']
       territories?: WorldState['territories']
       migrations?: WorldState['migrations']
+      actionLog?: WorldState['actionLog']
+      landmarks?: WorldState['landmarks']
+      nextActionId?: number
     }
     const legacy = structuredClone(saved) as unknown as LegacySnapshot
+    legacy.version = 1
     delete legacy.deathRecords
     delete legacy.genealogy
     delete legacy.species
@@ -150,6 +155,9 @@ describe('SimulationEngine', () => {
     delete legacy.groups
     delete legacy.territories
     delete legacy.migrations
+    delete legacy.actionLog
+    delete legacy.landmarks
+    delete legacy.nextActionId
     delete legacy.stats.deathsByCause
     delete legacy.stats.averageHydration
     delete legacy.stats.status
@@ -181,6 +189,9 @@ describe('SimulationEngine', () => {
     expect(restored.genealogy).toHaveLength(restored.creatures.length)
     expect(restored.species).toHaveLength(2)
     expect(restored.nextSpeciesId).toBe(3)
+    expect(restored.version).toBe(2)
+    expect(restored.actionLog).toEqual([])
+    expect(restored.nextActionId).toBe(1)
     expect(restored.stats.deathsByCause).toEqual({
       predation: 0,
       starvation: 0,
@@ -194,6 +205,23 @@ describe('SimulationEngine', () => {
     expect(restored.groups).toEqual([])
     expect(restored.territories).toEqual([])
     expect(restored.migrations).toEqual([])
+  })
+
+  it('reconstructs the same world from its seed and ordered action log', () => {
+    const engine = new SimulationEngine('REPLAY-6204')
+    for (let step = 0; step < 120; step += 1) engine.step(0.05)
+    const first = engine.state.creatures[0]
+    engine.applyWorldAction('water', first.x, first.y, 58)
+    for (let step = 0; step < 180; step += 1) engine.step(0.05)
+    const second = engine.state.creatures.find((creature) => creature.kind === 'hunter') as Creature
+    engine.applyWorldAction('plant', second.x, second.y, 58)
+    for (let step = 0; step < 90; step += 1) engine.step(0.05)
+
+    const live = engine.snapshot()
+    const replayed = SimulationEngine.replay(live.seed, live.actionLog, live.tick).snapshot()
+
+    expect(live.actionLog).toHaveLength(2)
+    expect(replayed).toEqual(live)
   })
 
   it('applies player terrain and creature actions', () => {

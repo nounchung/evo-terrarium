@@ -2,8 +2,9 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/e2e',
-  fullyParallel: true,
-  timeout: 30_000,
+  fullyParallel: false,
+  workers: process.env.CI ? 1 : undefined,
+  timeout: 45_000,
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',
@@ -18,4 +19,3 @@ export default defineConfig({
     reuseExistingServer: true,
   },
 })
-

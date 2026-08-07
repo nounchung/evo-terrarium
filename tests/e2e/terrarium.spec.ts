@@ -6,7 +6,7 @@ test('loads a living world and exposes simulation controls', async ({ page }) =>
   await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add grazer' })).toBeVisible()
-  await expect(page.getByText('FOOD WEB')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open climate lab' })).toBeVisible()
 })
 
 test('creates a deterministic world from a chosen seed', async ({ page }) => {
@@ -27,12 +27,16 @@ test('pauses while the new-world dialog is open and restores the prior speed', a
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
 })
 
-test('keeps drag for exploration while a creation tool is armed', async ({ page }) => {
+test('keeps drag for exploration while a creation tool is armed', async ({ page }, testInfo) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Water' }).click()
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeVisible()
-  await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  if (testInfo.project.name === 'mobile-safari') {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeHidden()
+  } else {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  }
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
   await page.keyboard.press('Escape')
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeHidden()
@@ -67,7 +71,7 @@ test('opens the species codex, pauses the world and restores speed', async ({ pa
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
 })
 
-test('opens the climate lab and arms a bounded regional pressure', async ({ page }) => {
+test('opens the climate lab and arms a bounded regional pressure', async ({ page }, testInfo) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Open climate lab' }).click()
@@ -76,7 +80,11 @@ test('opens the climate lab and arms a bounded regional pressure', async ({ page
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
   await page.getByRole('button', { name: /Wildfire/ }).click()
   await expect(page.getByText('WORLD PAUSED · REGIONAL PRESSURE')).toBeVisible()
-  await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  if (testInfo.project.name === 'mobile-safari') {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeHidden()
+  } else {
+    await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
+  }
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
@@ -95,4 +103,39 @@ test('keeps the optional Social Lab live while exposing group rules', async ({ p
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
   await page.getByRole('button', { name: 'Close Social Lab' }).click()
   await expect(page.getByRole('complementary', { name: 'Social behaviour lab' })).toBeHidden()
+})
+
+test('names a save slot and replays an ecological landmark from the archive', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
+  await page.getByRole('button', { name: 'Open World Archive' }).click()
+  await expect(page.getByRole('complementary', { name: 'World archive' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
+
+  await page.getByLabel('Save name').fill('E2E field notes')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved “E2E field notes”.')).toBeVisible()
+  await expect(page.getByText('E2E field notes', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Replay', exact: true }).click()
+  await expect(page.locator('.landmark-list > button').first()).toBeVisible()
+  await page.getByLabel('Replay timeline').press('Home')
+  await page.getByRole('button', { name: 'Rebuild here' }).click()
+  await expect(page.getByText('Replay rebuilt at tick 0.')).toBeVisible()
+  await page.getByRole('button', { name: 'Return live' }).click()
+  await expect(page.getByText('Returned to the live world.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
+})
+
+test('exposes validated world portability and reproducible seed sharing', async ({ page }) => {
+  await page.goto('/?seed=SHARE-6204')
+  await page.getByRole('button', { name: 'Open World Archive' }).click()
+  await page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(page.getByText('SHARE-6204')).toBeVisible()
+  await expect(page.getByText('Portable world record')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy seed link' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Export JSON' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Import JSON' })).toBeVisible()
 })
