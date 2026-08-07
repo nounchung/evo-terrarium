@@ -669,7 +669,7 @@ export class SimulationEngine {
       0,
     )
     const available = Math.max(0, this.populationCapacity(a.kind) - currentPopulation)
-    const litterSize = a.kind === 'hunter' && currentPopulation <= 4 ? 2 : 1
+    const litterSize = a.kind === 'hunter' && currentPopulation <= 7 ? 2 : 1
     const children: Creature[] = []
     for (let index = 0; index < Math.min(litterSize, available); index += 1) {
       const inheritance = this.inherit(a, b)
@@ -970,13 +970,17 @@ export class SimulationEngine {
       this.state.groups.some((group) => group.id === territory.groupId),
     )
 
-    for (const kind of ['grazer', 'hunter'] as CreatureKind[]) {
+    for (const kind of ['hunter', 'grazer'] as CreatureKind[]) {
       const ungrouped = this.state.creatures
         .filter((creature) => creature.kind === kind && creature.groupId === null)
         .sort((first, second) => first.id - second.id)
-      const formationRadius = kind === 'grazer' ? 135 : 180
+      const formationRadius = kind === 'grazer' ? 135 : 280
       const minimum = kind === 'grazer' ? 3 : 2
-      while (ungrouped.length >= minimum && this.state.groups.length < 24) {
+      const kindLimit = kind === 'grazer' ? 18 : 6
+      while (
+        ungrouped.length >= minimum &&
+        this.state.groups.filter((group) => group.kind === kind).length < kindLimit
+      ) {
         const anchor = ungrouped.shift()!
         if (anchor.groupId !== null) continue
         const neighbours = ungrouped.filter((candidate) =>
