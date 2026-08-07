@@ -4,7 +4,7 @@ Shape a world. Watch life adapt.
 
 EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the environment, introduce life and observe feeding, fear, hunting, reproduction, mutation and extinction emerge from deterministic simulation rules.
 
-## Current vertical slice (R6)
+## Complete vertical slice (R7)
 
 - Seeded water, meadow, grass and forest generation
 - Autonomous plants, grazers and hunters
@@ -36,6 +36,10 @@ EvoTerrarium is a full-screen autonomous ecosystem sandbox. Players change the e
 - Touch-friendly creation tools for terrain, resources and creatures
 - Inspectable organisms with vitals, meals, drinks, hunts, lineage and inherited traits
 - Web Worker simulation and IndexedDB persistence
+- Opt-in procedural Web Audio soundscape driven by water, rain, season, population and world events
+- First-run, keyboard-accessible onboarding with an explicit silent path
+- Reduced-motion-aware environmental polish, seasonal light and creature movement
+- Adaptive canvas resolution for smoother rendering on high-density mobile displays
 
 ## Run locally
 
@@ -55,11 +59,11 @@ npm run build
 
 The deterministic simulation engine contains no React or PixiJS code. A Web Worker advances it with a fixed timestep and sends serializable snapshots to the UI. React owns controls and overlays; PixiJS renders the living world; IndexedDB persists snapshots locally.
 
-See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md), [R2 Validation](docs/r2-validation.md), [R3 Validation](docs/r3-validation.md), [R4 Validation](docs/r4-validation.md), [R5 Validation](docs/r5-validation.md) and [R6 Validation](docs/r6-validation.md).
+See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md), [R2 Validation](docs/r2-validation.md), [R3 Validation](docs/r3-validation.md), [R4 Validation](docs/r4-validation.md), [R5 Validation](docs/r5-validation.md), [R6 Validation](docs/r6-validation.md) and [R7 Validation](docs/r7-validation.md).
 
 ## Roadmap
 
-R0 through R7 are tracked as GitHub issues. Each phase retains the capabilities from earlier phases; diagnostic views will move into an optional Lab Mode rather than being removed.
+R0 through R7 are complete. Each phase retains the capabilities from earlier phases; diagnostic views live in optional Lab surfaces rather than interrupting the core observation experience.
 
 ## Cost and deployment
 

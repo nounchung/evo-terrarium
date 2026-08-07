@@ -1,5 +1,33 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ page }, testInfo) => {
+  if (!testInfo.title.includes('introduces the world')) {
+    await page.addInitScript(() => window.localStorage.setItem('evo-terrarium:onboarding-v1', 'complete'))
+  }
+})
+
+test('introduces the world with an accessible first-run tour', async ({ page }) => {
+  await page.goto('/')
+  const tour = page.getByRole('dialog', { name: 'Meet a world already in motion' })
+  await expect(tour).toBeVisible()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Change habitat, not outcomes' })).toBeVisible()
+  await page.getByRole('button', { name: 'Next' }).click()
+  await expect(page.getByRole('heading', { name: 'Watch generations become history' })).toBeVisible()
+  await page.getByRole('button', { name: 'Continue silently' }).click()
+  await expect(tour).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Turn living soundscape on' })).toBeVisible()
+})
+
+test('enables and disables the procedural living soundscape', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Turn living soundscape on' }).click()
+  await expect(page.getByRole('button', { name: 'Turn living soundscape off' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('Living soundscape on')).toBeVisible()
+  await page.getByRole('button', { name: 'Turn living soundscape off' }).click()
+  await expect(page.getByRole('button', { name: 'Turn living soundscape on' })).toHaveAttribute('aria-pressed', 'false')
+})
+
 test('loads a living world and exposes simulation controls', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByText('EvoTerrarium')).toBeVisible()
