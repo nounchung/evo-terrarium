@@ -78,6 +78,8 @@
 .top-actions { justify-self: end; display: flex; gap: 8px; align-items: center; }
 .icon-button, .new-world { height: 45px; border-radius: 14px; cursor: pointer; }
 .icon-button { display: grid; width: 45px; place-items: center; }
+.locale-toggle { display: flex; align-items: center; justify-content: center; gap: 3px; }
+.locale-toggle span { font-family: var(--mono); font-size: 8px; font-weight: 700; letter-spacing: -.2px; }
 .lab-toggle.active, .archive-toggle.active, .sound-toggle.active { color: #17251b; background: #dfe0a6; }
 .new-world { display: flex; align-items: center; gap: 8px; padding: 0 16px; color: #162419; background: linear-gradient(145deg, #e5dda7, #afc48c); border-color: rgba(255, 255, 255, .32); font-size: 11px; font-weight: 700; }
 .save-state { opacity: 0; color: rgba(230, 235, 212, .65); font-family: var(--mono); font-size: 9px; letter-spacing: .7px; text-transform: uppercase; transition: opacity .3s; }
@@ -466,6 +468,7 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
   .brand strong { font-size: 12px; }
   .brand small { display: none; }
   .icon-button, .new-world { width: 40px; height: 40px; border-radius: 12px; }
+  .top-actions { gap: 5px; }
   .fullscreen-toggle { display: none; }
   .world-stats { min-height: 43px; margin-top: 7px; padding: 4px; border-radius: 13px; }
   .world-stats > div, .world-stats > button { min-width: 69px; padding-inline: 8px; }
@@ -529,6 +532,11 @@ button.lineage-node.living:hover { background: rgba(205, 218, 143, .1); }
   .onboarding-card > p { font-size: 12px; }
   .onboarding-card > footer { align-items: flex-end; }
   .onboarding-finish { flex-direction: column-reverse; }
+}
+
+@media (max-width: 430px) {
+  .brand { width: 44px; padding: 5px; justify-content: center; }
+  .brand > span:nth-child(2), .brand > svg { display: none; }
 }
 
 @media (max-height: 560px) and (orientation: landscape) {

@@ -4,6 +4,46 @@ test.beforeEach(async ({ page }, testInfo) => {
   if (!testInfo.title.includes('introduces the world')) {
     await page.addInitScript(() => window.localStorage.setItem('evo-terrarium:onboarding-v1', 'complete'))
   }
+  if (!testInfo.title.includes('[zh-HK]')) {
+    await page.addInitScript(() => window.localStorage.setItem('evo-terrarium:locale-v1', 'en'))
+  }
+})
+
+test('[zh-HK] defaults to Traditional Chinese and persists a language choice', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-HK')
+  await expect(page.getByRole('application', { name: '互動式演化生態系統' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '暫停模擬' })).toBeVisible()
+  await expect(page.getByLabel('最近世界事件').getByText('一個生命世界甦醒了', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '切換至英文' }).click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+  await expect(page.getByRole('button', { name: '切換至繁體中文' })).toBeVisible()
+})
+
+test('[zh-HK] exposes the major labs and archive in Traditional Chinese', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '開啟物種圖鑑' }).click()
+  await expect(page.getByRole('complementary', { name: '物種圖鑑' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '自然選擇證據' })).toBeVisible()
+  await page.getByRole('button', { name: '關閉物種圖鑑' }).click()
+
+  await page.getByRole('button', { name: '開啟氣候實驗室' }).click()
+  await expect(page.getByRole('complementary', { name: '氣候與災害實驗室' })).toBeVisible()
+  await expect(page.getByText('引入區域壓力')).toBeVisible()
+  await page.getByRole('button', { name: '關閉氣候實驗室' }).click()
+
+  await page.getByRole('button', { name: '切換社會實驗室' }).click()
+  await expect(page.getByRole('complementary', { name: '社會行為實驗室' })).toBeVisible()
+  await expect(page.getByText('遷徙證據')).toBeVisible()
+  await page.getByRole('button', { name: '關閉社會實驗室' }).click()
+
+  await page.getByRole('button', { name: '開啟世界檔案館' }).click()
+  await expect(page.getByRole('complementary', { name: '世界檔案館' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '重播', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '分享', exact: true })).toBeVisible()
 })
 
 test('introduces the world with an accessible first-run tour', async ({ page }) => {

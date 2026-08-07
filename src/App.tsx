@@ -1,4 +1,4 @@
-import { Volume2, VolumeX } from 'lucide-react'
+import { Languages, Volume2, VolumeX } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import { ProceduralSoundscape } from './audio/soundscape'
@@ -9,6 +9,16 @@ import { ClimatePanel } from './components/ClimatePanel'
 import { SocialLab } from './components/SocialLab'
 import { ArchivePanel } from './components/ArchivePanel'
 import { OnboardingTour } from './components/OnboardingTour'
+import {
+  localizeBehaviour,
+  localizeEcosystemStatus,
+  localizeGeneratedName,
+  localizeKind,
+  localizeSeason,
+  localizeWorldText,
+  useI18n,
+  type Locale,
+} from './i18n'
 import {
   listSaveSlots,
   loadWorld,
@@ -92,6 +102,24 @@ const DISASTER_TOOL_META: Record<DisasterType, { id: DisasterType; label: string
 const toolMeta = (tool: CreationTool) => TOOLS.find((item) => item.id === tool)
   ?? DISASTER_TOOL_META[tool as DisasterType]
 
+const TOOL_LABELS_ZH: Record<CreationTool, string> = {
+  inspect: '觀察',
+  grass: '草原',
+  water: '水域',
+  forest: '森林',
+  plant: '種植植物',
+  grazer: '加入食草獸',
+  hunter: '加入獵食者',
+  drought: '放置乾旱',
+  flood: '釋放洪水',
+  disease: '引發疾病',
+  wildfire: '點燃山火',
+}
+
+function toolLabel(tool: CreationTool, locale: Locale): string {
+  return locale === 'zh-HK' ? TOOL_LABELS_ZH[tool] : toolMeta(tool)?.label ?? tool
+}
+
 const SPEEDS: SimSpeed[] = [0, 1, 5, 20, 100]
 const ONBOARDING_KEY = 'evo-terrarium:onboarding-v1'
 
@@ -140,7 +168,21 @@ const BEHAVIOUR_COPY: Record<WorldState['creatures'][number]['behaviour'], strin
   migrate: 'Following a locally chosen route toward stronger habitat conditions.',
 }
 
+const BEHAVIOUR_COPY_ZH: typeof BEHAVIOUR_COPY = {
+  wander: '正在探索附近棲息地，尋找下一個機會。',
+  forage: '能量儲備正在下降，因此正在尋找食物。',
+  drink: '水分是目前最迫切的需要，因此正前往岸邊。',
+  flee: '正在逃離牠目前能察覺到的獵食者。',
+  hunt: '正在追蹤獵物，以補充能量儲備。',
+  mate: '正在尋找合適伴侶，延續下一代。',
+  rest: '目前沒有迫切需要，因此正在保存能量。',
+  regroup: '正在返回附近群體成員身邊，恢復凝聚力。',
+  patrol: '隨著競爭壓力變化，正在巡視獵群領域。',
+  migrate: '正沿著局部選定的路線，前往棲息條件更佳的區域。',
+}
+
 function App() {
+  const { locale, setLocale, isTraditionalChinese } = useI18n()
   const [world, setWorld] = useState<WorldState | null>(null)
   const [speed, setSpeed] = useState<SimSpeed>(1)
   const [tool, setTool] = useState<CreationTool>('inspect')
@@ -171,9 +213,11 @@ function App() {
   const speciesReturnSpeedRef = useRef<SimSpeed>(1)
   const archiveReturnSpeedRef = useRef<SimSpeed>(1)
   const replayRef = useRef(replay)
+  const localeRef = useRef(locale)
 
   worldRef.current = world
   replayRef.current = replay
+  localeRef.current = locale
   const selected = useMemo(
     () => world?.creatures.find((creature) => creature.id === selectedId) ?? null,
     [selectedId, world],
@@ -198,9 +242,11 @@ function App() {
       setSpeed(event.data.speed)
       setReplay(event.data.replay)
       if (replayRef.current.active && !event.data.replay.active) {
-        setArchiveNotice('Returned to the live world.')
+        setArchiveNotice(localeRef.current === 'zh-HK' ? '已返回目前世界。' : 'Returned to the live world.')
       } else if (event.data.replay.active) {
-        setArchiveNotice(`Replay rebuilt at tick ${event.data.replay.currentTick.toLocaleString()}.`)
+        setArchiveNotice(localeRef.current === 'zh-HK'
+          ? `已重建至時間刻 ${event.data.replay.currentTick.toLocaleString(localeRef.current)}。`
+          : `Replay rebuilt at tick ${event.data.replay.currentTick.toLocaleString(localeRef.current)}.`)
       }
     })
     void loadWorld().then((restored) => {
@@ -261,20 +307,22 @@ function App() {
     try {
       const started = await soundscape.start(current)
       setSoundEnabled(started)
-      showSoundNotice(started ? 'Living soundscape on' : 'Audio is unavailable in this browser')
+      showSoundNotice(started
+        ? (isTraditionalChinese ? '生命音景已開啟' : 'Living soundscape on')
+        : (isTraditionalChinese ? '此瀏覽器無法使用音訊' : 'Audio is unavailable in this browser'))
     } catch {
       setSoundEnabled(false)
       soundscapeRef.current = null
       void soundscape.stop()
-      showSoundNotice('Audio is unavailable in this browser')
+      showSoundNotice(isTraditionalChinese ? '此瀏覽器無法使用音訊' : 'Audio is unavailable in this browser')
     }
-  }, [showSoundNotice])
+  }, [isTraditionalChinese, showSoundNotice])
   const stopSound = useCallback(() => {
     setSoundEnabled(false)
-    showSoundNotice('Living soundscape off')
+    showSoundNotice(isTraditionalChinese ? '生命音景已關閉' : 'Living soundscape off')
     void soundscapeRef.current?.stop()
     soundscapeRef.current = null
-  }, [showSoundNotice])
+  }, [isTraditionalChinese, showSoundNotice])
   const toggleSound = () => {
     if (soundEnabled) stopSound()
     else void startSound()
@@ -327,19 +375,19 @@ function App() {
     if (!current || replay.active) return
     void writeSaveSlot(name, current).then((slot) => {
       setSaveSlots((existing) => [slot, ...existing].slice(0, 6))
-      setArchiveNotice(`Saved “${slot.name}”.`)
-    }).catch(() => setArchiveNotice('This browser could not save the world.'))
+      setArchiveNotice(isTraditionalChinese ? `已儲存「${slot.name}」。` : `Saved “${slot.name}”.`)
+    }).catch(() => setArchiveNotice(isTraditionalChinese ? '此瀏覽器無法儲存世界。' : 'This browser could not save the world.'))
   }
   const restoreSlot = (slot: SaveSlot) => {
     setSeedDraft(slot.world.seed)
-    setArchiveNotice(`Restored “${slot.name}”.`)
+    setArchiveNotice(isTraditionalChinese ? `已還原「${slot.name}」。` : `Restored “${slot.name}”.`)
     send({ type: 'restore', world: slot.world })
   }
   const deleteSlot = (slot: SaveSlot) => {
     void removeSaveSlot(slot.id).then(() => {
       setSaveSlots((existing) => existing.filter((candidate) => candidate.id !== slot.id))
-      setArchiveNotice(`Deleted “${slot.name}”.`)
-    }).catch(() => setArchiveNotice('This save could not be deleted.'))
+      setArchiveNotice(isTraditionalChinese ? `已刪除「${slot.name}」。` : `Deleted “${slot.name}”.`)
+    }).catch(() => setArchiveNotice(isTraditionalChinese ? '無法刪除此存檔。' : 'This save could not be deleted.'))
   }
   const exportWorld = (name: string, recordWorld: WorldState) => {
     const blob = new Blob([serializeWorldRecord(name, recordWorld)], { type: 'application/json' })
@@ -349,23 +397,25 @@ function App() {
     anchor.download = `${recordWorld.seed.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'world'}.evo.json`
     anchor.click()
     URL.revokeObjectURL(url)
-    setArchiveNotice('Portable world record exported.')
+    setArchiveNotice(isTraditionalChinese ? '已匯出可攜式世界紀錄。' : 'Portable world record exported.')
   }
   const importWorld = (file: File) => {
     void file.text().then((text) => {
       const record = parseWorldRecord(text)
       setSeedDraft(record.world.seed)
       send({ type: 'restore', world: record.world })
-      setArchiveNotice(`Imported “${record.name}”.`)
+      setArchiveNotice(isTraditionalChinese ? `已匯入「${record.name}」。` : `Imported “${record.name}”.`)
     }).catch((error: unknown) => {
-      setArchiveNotice(error instanceof Error ? error.message : 'This world record could not be read.')
+      setArchiveNotice(isTraditionalChinese
+        ? '無法讀取此世界紀錄，請確認檔案格式正確。'
+        : error instanceof Error ? error.message : 'This world record could not be read.')
     })
   }
   const copySeedLink = () => {
     if (!worldRef.current) return
     const url = seedShareUrl(worldRef.current.seed, window.location.href)
     void navigator.clipboard.writeText(url)
-      .then(() => setArchiveNotice('Seed link copied.'))
+      .then(() => setArchiveNotice(isTraditionalChinese ? '已複製種子連結。' : 'Seed link copied.'))
       .catch(() => setArchiveNotice(url))
   }
   const createWorld = () => {
@@ -544,10 +594,10 @@ function App() {
 
   const year = world ? Math.max(1, Math.floor(world.day / 28) + 1) : 1
   const day = world ? Math.max(1, Math.floor(world.day % 28) + 1) : 1
-  const seasonLabels = { 'new-growth': 'New Growth', 'high-sun': 'High Sun', amberfall: 'Amberfall', 'long-rain': 'Long Rain' }
-  const season = world ? seasonLabels[world.climate.season] : 'New Growth'
+  const season = world ? localizeSeason(world.climate.season, locale) : localizeSeason('new-growth', locale)
   const population = (world?.stats.grazers ?? 0) + (world?.stats.hunters ?? 0)
-  const foodWebLabel = world?.stats.status ?? 'balanced'
+  const foodWebStatus = world?.stats.status ?? 'balanced'
+  const foodWebLabel = localizeEcosystemStatus(foodWebStatus, locale)
   const livingSpecies = world?.species.filter((record) => record.population > 0).length ?? 0
   const peers = selected
     ? world?.creatures.filter((creature) => creature.kind === selected.kind) ?? []
@@ -587,113 +637,130 @@ function App() {
       />
 
       <header className="topbar">
-        <button className="brand glass" type="button" onClick={openSeedDialog} aria-label="Create a new world">
+        <button className="brand glass" type="button" onClick={openSeedDialog} aria-label={isTraditionalChinese ? '建立新世界' : 'Create a new world'}>
           <span className="brand-mark"><Icon name="leaf" size={20} /></span>
-          <span><strong>EvoTerrarium</strong><small>Living world lab</small></span>
+          <span><strong>EvoTerrarium</strong><small>{isTraditionalChinese ? '生命世界實驗室' : 'Living world lab'}</small></span>
           <Icon name="chevron" size={14} />
         </button>
 
-        <section className="world-stats glass" aria-label="World statistics">
-          <div><span className="stat-dot grazer"/><strong>{world?.stats.grazers ?? '—'}</strong><small>Grazers</small></div>
-          <div><span className="stat-dot hunter"/><strong>{world?.stats.hunters ?? '—'}</strong><small>Hunters</small></div>
-          <div className="desktop-stat"><span className="stat-dot plant"/><strong>{world?.stats.plants ?? '—'}</strong><small>Plants</small></div>
-          <button className="lineage-stat" type="button" onClick={browseLatestLineage} disabled={!latestCreature} aria-label="Browse latest lineage"><Icon name="spark" size={15}/><strong>G{world?.stats.maxGeneration ?? 1}</strong><small>Generation</small></button>
-          <button className="species-stat" type="button" onClick={openSpecies} disabled={!world} aria-label="Open species codex"><Icon name="leaf" size={15}/><strong>{livingSpecies}</strong><small>Species</small></button>
+        <section className="world-stats glass" aria-label={isTraditionalChinese ? '世界統計' : 'World statistics'}>
+          <div><span className="stat-dot grazer"/><strong>{world?.stats.grazers ?? '—'}</strong><small>{isTraditionalChinese ? '食草獸' : 'Grazers'}</small></div>
+          <div><span className="stat-dot hunter"/><strong>{world?.stats.hunters ?? '—'}</strong><small>{isTraditionalChinese ? '獵食者' : 'Hunters'}</small></div>
+          <div className="desktop-stat"><span className="stat-dot plant"/><strong>{world?.stats.plants ?? '—'}</strong><small>{isTraditionalChinese ? '植物' : 'Plants'}</small></div>
+          <button className="lineage-stat" type="button" onClick={browseLatestLineage} disabled={!latestCreature} aria-label={isTraditionalChinese ? '瀏覽最新族譜' : 'Browse latest lineage'}><Icon name="spark" size={15}/><strong>G{world?.stats.maxGeneration ?? 1}</strong><small>{isTraditionalChinese ? '世代' : 'Generation'}</small></button>
+          <button className="species-stat" type="button" onClick={openSpecies} disabled={!world} aria-label={isTraditionalChinese ? '開啟物種圖鑑' : 'Open species codex'}><Icon name="leaf" size={15}/><strong>{livingSpecies}</strong><small>{isTraditionalChinese ? '物種' : 'Species'}</small></button>
         </section>
 
         <div className="top-actions">
-          <span className={`save-state ${saved ? 'visible' : ''}`}>Saved</span>
-          <button className={`icon-button glass archive-toggle ${archiveOpen ? 'active' : ''}`} type="button" onClick={openArchive} aria-label="Open World Archive"><Icon name="undo" /></button>
-          <button className={`icon-button glass lab-toggle ${labMode ? 'active' : ''}`} type="button" onClick={toggleLabMode} aria-label="Toggle Social Lab"><Icon name="spark" /></button>
+          <span className={`save-state ${saved ? 'visible' : ''}`}>{isTraditionalChinese ? '已儲存' : 'Saved'}</span>
+          <button
+            className="icon-button glass locale-toggle"
+            type="button"
+            onClick={() => setLocale(isTraditionalChinese ? 'en' : 'zh-HK')}
+            aria-label={isTraditionalChinese ? '切換至英文' : '切換至繁體中文'}
+            title={isTraditionalChinese ? '切換至英文' : '切換至繁體中文'}
+          ><Languages size={16}/><span>{isTraditionalChinese ? 'EN' : '繁'}</span></button>
+          <button className={`icon-button glass archive-toggle ${archiveOpen ? 'active' : ''}`} type="button" onClick={openArchive} aria-label={isTraditionalChinese ? '開啟世界檔案館' : 'Open World Archive'}><Icon name="undo" /></button>
+          <button className={`icon-button glass lab-toggle ${labMode ? 'active' : ''}`} type="button" onClick={toggleLabMode} aria-label={isTraditionalChinese ? '切換社會實驗室' : 'Toggle Social Lab'}><Icon name="spark" /></button>
           <button
             className={`icon-button glass sound-toggle ${soundEnabled ? 'active' : ''}`}
             type="button"
             onClick={toggleSound}
-            aria-label={soundEnabled ? 'Turn living soundscape off' : 'Turn living soundscape on'}
+            aria-label={soundEnabled
+              ? (isTraditionalChinese ? '關閉生命音景' : 'Turn living soundscape off')
+              : (isTraditionalChinese ? '開啟生命音景' : 'Turn living soundscape on')}
             aria-pressed={soundEnabled}
-            title={soundEnabled ? 'Turn living soundscape off' : 'Turn living soundscape on'}
+            title={soundEnabled
+              ? (isTraditionalChinese ? '關閉生命音景' : 'Turn living soundscape off')
+              : (isTraditionalChinese ? '開啟生命音景' : 'Turn living soundscape on')}
           >
             {soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
-          <button className="icon-button glass fullscreen-toggle" type="button" onClick={fullscreen} aria-label="Toggle fullscreen"><Icon name="expand" /></button>
-          <button className="new-world glass" type="button" onClick={openSeedDialog}><Icon name="seed"/><span>New world</span></button>
+          <button className="icon-button glass fullscreen-toggle" type="button" onClick={fullscreen} aria-label={isTraditionalChinese ? '切換全螢幕' : 'Toggle fullscreen'}><Icon name="expand" /></button>
+          <button className="new-world glass" type="button" onClick={openSeedDialog}><Icon name="seed"/><span>{isTraditionalChinese ? '新世界' : 'New world'}</span></button>
         </div>
       </header>
 
-      <aside className="creation-palette glass" aria-label="Creation tools">
-        <span className="palette-label">CREATE</span>
+      <aside className="creation-palette glass" aria-label={isTraditionalChinese ? '創造工具' : 'Creation tools'}>
+        <span className="palette-label">{isTraditionalChinese ? '創造' : 'CREATE'}</span>
         {TOOLS.map((item, index) => (
           <button
             key={item.id}
             type="button"
             className={`${tool === item.id ? 'active' : ''} ${item.tone ?? ''}`}
             onClick={() => chooseTool(item.id)}
-            aria-label={item.label}
+            aria-label={toolLabel(item.id, locale)}
             aria-pressed={tool === item.id}
           >
-            <Icon name={item.icon} size={19}/><span>{item.label}</span>
+            <Icon name={item.icon} size={19}/><span>{toolLabel(item.id, locale)}</span>
             {index === 0 && <i className="palette-divider"/>}
           </button>
         ))}
       </aside>
 
       <section className="world-calendar glass">
-        <div><small>YEAR {year}</small><strong>Day {day}</strong></div>
+        <div><small>{isTraditionalChinese ? `第 ${year} 年` : `YEAR ${year}`}</small><strong>{isTraditionalChinese ? `第 ${day} 日` : `Day ${day}`}</strong></div>
         <i/>
-        <div><small>SEASON</small><strong>{season}</strong></div>
+        <div><small>{isTraditionalChinese ? '季節' : 'SEASON'}</small><strong>{season}</strong></div>
         <i/>
-        <div className={`food-web ${foodWebLabel}`}><small>FOOD WEB</small><strong>{foodWebLabel}</strong></div>
-        <button className={`weather-orb ${world?.climate.dayPhase ?? 'day'}`} type="button" onClick={openClimate} aria-label="Open climate lab"><span>{world ? `${world.climate.temperature.toFixed(0)}°` : '—'}</span></button>
+        <div className={`food-web ${foodWebStatus}`}><small>{isTraditionalChinese ? '食物網' : 'FOOD WEB'}</small><strong>{foodWebLabel}</strong></div>
+        <button className={`weather-orb ${world?.climate.dayPhase ?? 'day'}`} type="button" onClick={openClimate} aria-label={isTraditionalChinese ? '開啟氣候實驗室' : 'Open climate lab'}><span>{world ? `${world.climate.temperature.toFixed(0)}°` : '—'}</span></button>
       </section>
 
       <section id="world-accessibility-summary" className="visually-hidden">
-        <h1>Living ecosystem summary</h1>
-        <p>{population} creatures across {livingSpecies} living species. The food web is {foodWebLabel}. Current season: {season}.</p>
-        <p>Use the creation tools to alter habitat. Use simulation speed controls to pause or advance time.</p>
+        <h1>{isTraditionalChinese ? '生命生態系統摘要' : 'Living ecosystem summary'}</h1>
+        <p>{isTraditionalChinese
+          ? `${population} 個生命分布於 ${livingSpecies} 個現存物種。食物網目前${foodWebLabel}，季節為${season}。`
+          : `${population} creatures across ${livingSpecies} living species. The food web is ${foodWebLabel}. Current season: ${season}.`}</p>
+        <p>{isTraditionalChinese ? '使用創造工具改變棲息地，並使用模擬速度控制暫停或推進時間。' : 'Use the creation tools to alter habitat. Use simulation speed controls to pause or advance time.'}</p>
       </section>
-      <p className="visually-hidden" role="status" aria-live={onboardingOpen ? 'off' : 'polite'}>{world?.events[0]?.title ?? ''}</p>
+      <p className="visually-hidden" role="status" aria-live={onboardingOpen ? 'off' : 'polite'}>{localizeWorldText(world?.events[0]?.title ?? '', locale)}</p>
 
       {soundNotice && <div className="sound-notice glass" role="status" aria-live="polite">{soundNotice}</div>}
 
-      {!lineageOpen && !speciesOpen && !climateOpen && !labMode && !archiveOpen && <aside className="event-feed" aria-label="Recent world events">
+      {!lineageOpen && !speciesOpen && !climateOpen && !labMode && !archiveOpen && <aside className="event-feed" aria-label={isTraditionalChinese ? '最近世界事件' : 'Recent world events'}>
         {(world?.events ?? []).slice(0, 3).map((event, index) => (
           <article key={event.id} className={`event-card glass ${index > 1 ? 'minor' : ''}`}>
             <span className={`event-symbol ${event.kind}`}><Icon name={event.kind === 'death' ? 'hunter' : event.kind === 'player' ? 'seed' : 'spark'} size={15}/></span>
-            <div><small>DAY {Math.floor(event.day)}</small><strong>{event.title}</strong><p>{event.detail}</p></div>
+            <div><small>{isTraditionalChinese ? '第' : 'DAY'} {Math.floor(event.day)} {isTraditionalChinese ? '日' : ''}</small><strong>{localizeWorldText(event.title, locale)}</strong><p>{localizeWorldText(event.detail, locale)}</p></div>
           </article>
         ))}
       </aside>}
 
       {selected && !lineageOpen && !speciesOpen && !climateOpen && !labMode && !archiveOpen && (
-        <aside className="creature-card glass" aria-label="Selected creature details">
-          <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label="Close creature details"><Icon name="close"/></button>
+        <aside className="creature-card glass" aria-label={isTraditionalChinese ? '所選生物資料' : 'Selected creature details'}>
+          <button className="card-close" type="button" onClick={() => { setSelectedId(null); setLineageOpen(false) }} aria-label={isTraditionalChinese ? '關閉生物資料' : 'Close creature details'}><Icon name="close"/></button>
           <div className={`creature-avatar ${selected.kind}`}><Icon name={selected.kind === 'grazer' ? 'grazer' : 'hunter'} size={35}/><i/></div>
-          <div className="creature-title"><small>{selected.kind.toUpperCase()} · #{selected.id}</small><h2>{selected.species}</h2><p>Generation {selected.generation} · {selected.behaviour}</p></div>
+          <div className="creature-title"><small>{isTraditionalChinese ? localizeKind(selected.kind, locale) : selected.kind.toUpperCase()} · #{selected.id}</small><h2>{localizeGeneratedName(selected.species, locale)}</h2><p>{isTraditionalChinese ? `第 ${selected.generation} 代` : `Generation ${selected.generation}`} · {localizeBehaviour(selected.behaviour, locale)}</p></div>
           <div className="creature-insight">
-            <strong>{selected.behaviour === 'rest' ? 'Resting' : `${selected.behaviour[0].toUpperCase()}${selected.behaviour.slice(1)}`}</strong>
-            <p>{BEHAVIOUR_COPY[selected.behaviour]}</p>
-            <small>{Math.abs(speedDifference) < 3 ? 'Moves near the species average.' : `${Math.abs(speedDifference)}% ${speedDifference > 0 ? 'faster' : 'slower'} than its living peers.`}</small>
+            <strong>{localizeBehaviour(selected.behaviour, locale)}</strong>
+            <p>{isTraditionalChinese ? BEHAVIOUR_COPY_ZH[selected.behaviour] : BEHAVIOUR_COPY[selected.behaviour]}</p>
+            <small>{Math.abs(speedDifference) < 3
+              ? (isTraditionalChinese ? '移動速度接近同物種平均值。' : 'Moves near the species average.')
+              : (isTraditionalChinese
+                  ? `比現存同類${speedDifference > 0 ? '快' : '慢'} ${Math.abs(speedDifference)}%。`
+                  : `${Math.abs(speedDifference)}% ${speedDifference > 0 ? 'faster' : 'slower'} than its living peers.`)}</small>
           </div>
           <div className="vitals">
-            <div><span>ENERGY</span><strong>{Math.round(selected.energy)}%</strong><i><b style={{ width: `${selected.energy}%` }}/></i></div>
-            <div className="hydration"><span>WATER</span><strong>{Math.round(selected.hydration)}%</strong><i><b style={{ width: `${selected.hydration}%` }}/></i></div>
-            <div><span>HEALTH</span><strong>{Math.round(selected.health)}%</strong><i><b style={{ width: `${selected.health}%` }}/></i></div>
-            <div><span>AGE</span><strong>{selected.age.toFixed(1)}d</strong><i><b style={{ width: `${Math.min(100, selected.age / selected.maxAge * 100)}%` }}/></i></div>
+            <div><span>{isTraditionalChinese ? '能量' : 'ENERGY'}</span><strong>{Math.round(selected.energy)}%</strong><i><b style={{ width: `${selected.energy}%` }}/></i></div>
+            <div className="hydration"><span>{isTraditionalChinese ? '水分' : 'WATER'}</span><strong>{Math.round(selected.hydration)}%</strong><i><b style={{ width: `${selected.hydration}%` }}/></i></div>
+            <div><span>{isTraditionalChinese ? '健康' : 'HEALTH'}</span><strong>{Math.round(selected.health)}%</strong><i><b style={{ width: `${selected.health}%` }}/></i></div>
+            <div><span>{isTraditionalChinese ? '年齡' : 'AGE'}</span><strong>{selected.age.toFixed(1)}{isTraditionalChinese ? '日' : 'd'}</strong><i><b style={{ width: `${Math.min(100, selected.age / selected.maxAge * 100)}%` }}/></i></div>
           </div>
-          <div className="life-history" aria-label="Creature life history">
-            <span><strong>{selected.meals}</strong> meals</span>
-            <span><strong>{selected.drinks}</strong> drinks</span>
-            {selected.kind === 'hunter' && <span><strong>{selected.kills}</strong> hunts</span>}
+          <div className="life-history" aria-label={isTraditionalChinese ? '生物生命紀錄' : 'Creature life history'}>
+            <span><strong>{selected.meals}</strong> {isTraditionalChinese ? '次進食' : 'meals'}</span>
+            <span><strong>{selected.drinks}</strong> {isTraditionalChinese ? '次飲水' : 'drinks'}</span>
+            {selected.kind === 'hunter' && <span><strong>{selected.kills}</strong> {isTraditionalChinese ? '次狩獵' : 'hunts'}</span>}
           </div>
           <div className="gene-panel">
-            <div className="section-heading"><span>INHERITED TRAITS</span><small>{selected.parents ? '2 parents' : 'Founding life'}</small></div>
-            <GeneBar label="Speed" value={selected.genes.speed} min={24} max={78}/>
-            <GeneBar label="Vision" value={selected.genes.vision} min={55} max={240}/>
-            <GeneBar label="Size" value={selected.genes.size * 100} min={58} max={170}/>
-            <GeneBar label="Efficiency" value={(2 - selected.genes.metabolism) * 50} min={10} max={80}/>
-            {selected.mutations.length > 0 && <div className="mutation-summary"><strong>{selected.mutations.filter((mutation) => mutation.significant).length}</strong><span>notable · {selected.mutations.length} total mutations</span></div>}
+            <div className="section-heading"><span>{isTraditionalChinese ? '遺傳特徵' : 'INHERITED TRAITS'}</span><small>{selected.parents ? (isTraditionalChinese ? '雙親' : '2 parents') : (isTraditionalChinese ? '創始生命' : 'Founding life')}</small></div>
+            <GeneBar label={isTraditionalChinese ? '速度' : 'Speed'} value={selected.genes.speed} min={24} max={78}/>
+            <GeneBar label={isTraditionalChinese ? '視野' : 'Vision'} value={selected.genes.vision} min={55} max={240}/>
+            <GeneBar label={isTraditionalChinese ? '體型' : 'Size'} value={selected.genes.size * 100} min={58} max={170}/>
+            <GeneBar label={isTraditionalChinese ? '效率' : 'Efficiency'} value={(2 - selected.genes.metabolism) * 50} min={10} max={80}/>
+            {selected.mutations.length > 0 && <div className="mutation-summary"><strong>{selected.mutations.filter((mutation) => mutation.significant).length}</strong><span>{isTraditionalChinese ? `項顯著 · 共 ${selected.mutations.length} 項突變` : `notable · ${selected.mutations.length} total mutations`}</span></div>}
           </div>
-          <footer><span><strong>{selected.children.length}</strong> offspring</span><button type="button" onClick={() => openLineage(selected.id)}>Open genealogy</button></footer>
+          <footer><span><strong>{selected.children.length}</strong> {isTraditionalChinese ? '個後代' : 'offspring'}</span><button type="button" onClick={() => openLineage(selected.id)}>{isTraditionalChinese ? '開啟族譜' : 'Open genealogy'}</button></footer>
         </aside>
       )}
 
@@ -751,47 +818,49 @@ function App() {
           onExport={exportWorld}
           onImport={importWorld}
           onCopySeed={copySeedLink}
-          onSeek={(tick) => { setArchiveNotice('Rebuilding from the founding seed…'); send({ type: 'replay-seek', tick }) }}
-          onReplayExit={() => { send({ type: 'replay-exit' }); setArchiveNotice('Returned to the live world.') }}
+          onSeek={(tick) => { setArchiveNotice(isTraditionalChinese ? '正從創始種子重建…' : 'Rebuilding from the founding seed…'); send({ type: 'replay-seek', tick }) }}
+          onReplayExit={() => { send({ type: 'replay-exit' }); setArchiveNotice(isTraditionalChinese ? '已返回目前世界。' : 'Returned to the live world.') }}
           onReplaySpeed={changeSpeed}
         />
       )}
 
-      <section className="time-controls glass" aria-label="Simulation speed">
+      <section className="time-controls glass" aria-label={isTraditionalChinese ? '模擬速度' : 'Simulation speed'}>
         {SPEEDS.map((value) => (
-          <button key={value} type="button" disabled={archiveOpen} className={speed === value ? 'active' : ''} onClick={() => changeSpeed(value)} aria-label={value === 0 ? 'Pause simulation' : `Run at ${value} times speed`}>
+          <button key={value} type="button" disabled={archiveOpen} className={speed === value ? 'active' : ''} onClick={() => changeSpeed(value)} aria-label={value === 0 ? (isTraditionalChinese ? '暫停模擬' : 'Pause simulation') : (isTraditionalChinese ? `以 ${value} 倍速度運行` : `Run at ${value} times speed`)}>
             {value === 0 ? <Icon name={speed === 0 ? 'play' : 'pause'} size={17}/> : `${value}×`}
           </button>
         ))}
         <span className="time-divider"/>
-        <div className="population"><small>{replay.active ? 'REPLAY' : 'LIVING'}</small><strong>{population}</strong></div>
+        <div className="population"><small>{replay.active ? (isTraditionalChinese ? '重播' : 'REPLAY') : (isTraditionalChinese ? '生命' : 'LIVING')}</small><strong>{population}</strong></div>
       </section>
 
       {tool !== 'inspect' && (
         <section className="tool-status glass" role="status" aria-live="polite">
           <span className={`tool-swatch ${tool}`}><Icon name={toolMeta(tool)?.icon ?? 'cursor'} size={16}/></span>
-          <div><small>WORLD PAUSED · {DISASTER_TOOL_META[tool as DisasterType] ? 'REGIONAL PRESSURE' : 'CREATION TOOL'}</small><strong>{toolMeta(tool)?.label}</strong><p>Tap to apply · Drag to explore · Esc to finish</p></div>
-          <button type="button" onClick={() => send({ type: 'undo' })} disabled={!canUndo} aria-label="Undo last world change"><Icon name="undo" size={16}/><span>Undo</span></button>
-          <button type="button" onClick={finishCreation}>Done</button>
+          <div><small>{isTraditionalChinese ? '世界已暫停' : 'WORLD PAUSED'} · {DISASTER_TOOL_META[tool as DisasterType] ? (isTraditionalChinese ? '區域壓力' : 'REGIONAL PRESSURE') : (isTraditionalChinese ? '創造工具' : 'CREATION TOOL')}</small><strong>{toolLabel(tool, locale)}</strong><p>{isTraditionalChinese ? '點按套用 · 拖動探索 · Esc 完成' : 'Tap to apply · Drag to explore · Esc to finish'}</p></div>
+          <button type="button" onClick={() => send({ type: 'undo' })} disabled={!canUndo} aria-label={isTraditionalChinese ? '復原上一次世界變更' : 'Undo last world change'}><Icon name="undo" size={16}/><span>{isTraditionalChinese ? '復原' : 'Undo'}</span></button>
+          <button type="button" onClick={finishCreation}>{isTraditionalChinese ? '完成' : 'Done'}</button>
         </section>
       )}
 
-      <div className="gesture-hint"><span>{tool === 'inspect' ? 'Drag to explore · Pinch or scroll to zoom' : 'Tap to apply · Drag still moves the world'}</span></div>
+      <div className="gesture-hint"><span>{tool === 'inspect'
+        ? (isTraditionalChinese ? '拖動探索 · 雙指或滾輪縮放' : 'Drag to explore · Pinch or scroll to zoom')
+        : (isTraditionalChinese ? '點按套用 · 拖動仍會移動世界' : 'Tap to apply · Drag still moves the world')}</span></div>
 
-      {!world && <div className="loading"><span className="loading-leaf"><Icon name="leaf" size={28}/></span><strong>Growing your world…</strong></div>}
+      {!world && <div className="loading"><span className="loading-leaf"><Icon name="leaf" size={28}/></span><strong>{isTraditionalChinese ? '正在孕育你的世界…' : 'Growing your world…'}</strong></div>}
 
       {seedDialog && (
         <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeSeedDialog() }}>
           <section className="seed-dialog" role="dialog" aria-modal="true" aria-labelledby="seed-title">
-            <button className="card-close" type="button" onClick={closeSeedDialog} aria-label="Close"><Icon name="close"/></button>
+            <button className="card-close" type="button" onClick={closeSeedDialog} aria-label={isTraditionalChinese ? '關閉' : 'Close'}><Icon name="close"/></button>
             <span className="dialog-mark"><Icon name="seed" size={25}/></span>
-            <small>GENESIS LAB</small>
-            <h2 id="seed-title">Begin another living world</h2>
-            <p>A seed creates the same starting landscape. What happens next depends on life—and on you.</p>
-            <label htmlFor="world-seed">WORLD SEED</label>
-            <div className="seed-input"><Icon name="spark" size={17}/><input id="world-seed" value={seedDraft} onChange={(event) => setSeedDraft(event.target.value)} autoFocus/><button type="button" onClick={() => setSeedDraft(makeSeed())}>Randomise</button></div>
-            <button className="begin-button" type="button" onClick={createWorld}>Grow this world <Icon name="chevron"/></button>
-            <small className="dialog-note"><strong>World paused while choosing.</strong> Your current world is auto-saved on this device.</small>
+            <small>{isTraditionalChinese ? '創世實驗室' : 'GENESIS LAB'}</small>
+            <h2 id="seed-title">{isTraditionalChinese ? '開始另一個生命世界' : 'Begin another living world'}</h2>
+            <p>{isTraditionalChinese ? '相同種子會產生相同的初始地形。之後發生甚麼，取決於生命——也取決於你。' : 'A seed creates the same starting landscape. What happens next depends on life—and on you.'}</p>
+            <label htmlFor="world-seed">{isTraditionalChinese ? '世界種子' : 'WORLD SEED'}</label>
+            <div className="seed-input"><Icon name="spark" size={17}/><input id="world-seed" value={seedDraft} onChange={(event) => setSeedDraft(event.target.value)} autoFocus/><button type="button" onClick={() => setSeedDraft(makeSeed())}>{isTraditionalChinese ? '隨機產生' : 'Randomise'}</button></div>
+            <button className="begin-button" type="button" onClick={createWorld}>{isTraditionalChinese ? '孕育這個世界' : 'Grow this world'} <Icon name="chevron"/></button>
+            <small className="dialog-note"><strong>{isTraditionalChinese ? '選擇期間世界已暫停。' : 'World paused while choosing.'}</strong> {isTraditionalChinese ? '目前世界會自動儲存在此裝置。' : 'Your current world is auto-saved on this device.'}</small>
           </section>
         </div>
       )}
