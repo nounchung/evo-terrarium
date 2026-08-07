@@ -1,6 +1,6 @@
 # R7 Validation
 
-Status: implementation complete; automated and Jason-mode cross-device gate required before production
+Status: complete; automated, Jason-mode and production gates passed
 
 ## Scope
 
@@ -36,3 +36,10 @@ The corrected gate retains the existing visual hierarchy, keeps four essential t
 - The audio graph is closed when disabled or when the app unmounts.
 - Canvas resolution is capped at 1.35× on compact phones, 1.5× on larger mobile layouts and 2× elsewhere.
 - Reduced-motion preferences disable creature bobbing and firefly pulsing while preserving ecosystem state.
+
+## Production gate
+
+- GitHub Quality run 27 passed lint, 22 Vitest checks, production build and all 24 Playwright journeys across desktop Chromium and Mobile Safari.
+- The merged main build reached Vercel `READY` with the canonical `evo-terrarium.vercel.app` alias.
+- Production cloud-browser verification completed the first-run tour, enabled and disabled the soundscape, changed simulation speed and opened/closed the World Archive.
+- No application console failures or Vercel runtime errors were present during the production verification window.
