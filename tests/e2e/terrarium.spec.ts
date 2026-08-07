@@ -96,3 +96,36 @@ test('keeps the optional Social Lab live while exposing group rules', async ({ p
   await page.getByRole('button', { name: 'Close Social Lab' }).click()
   await expect(page.getByRole('complementary', { name: 'Social behaviour lab' })).toBeHidden()
 })
+
+test('names a save slot and replays an ecological landmark from the archive', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
+  await page.getByRole('button', { name: 'Open World Archive' }).click()
+  await expect(page.getByRole('complementary', { name: 'World archive' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
+
+  await page.getByLabel('Save name').fill('E2E field notes')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved “E2E field notes”.')).toBeVisible()
+  await expect(page.getByText('E2E field notes')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Replay', exact: true }).click()
+  await page.getByRole('button', { name: /A living world awakens/ }).click()
+  await expect(page.getByText('Replay rebuilt at tick 0.')).toBeVisible()
+  await page.getByRole('button', { name: 'Return live' }).click()
+  await expect(page.getByText('Returned to the live world.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)
+})
+
+test('exposes validated world portability and reproducible seed sharing', async ({ page }) => {
+  await page.goto('/?seed=SHARE-6204')
+  await page.getByRole('button', { name: 'Open World Archive' }).click()
+  await page.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(page.getByText('SHARE-6204')).toBeVisible()
+  await expect(page.getByText('Portable world record')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Copy seed link' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Export JSON' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Import JSON' })).toBeVisible()
+})

@@ -6,6 +6,7 @@ import {
   WORLD_WIDTH,
   type Biome,
   type ClimateState,
+  type CreationTool,
   type Creature,
   type CreatureKind,
   type DeathCause,
@@ -25,6 +26,7 @@ import {
   type SpeciesRecord,
   type SpatialMemory,
   type WorldEvent,
+  type WorldActionRecord,
   type WorldState,
 } from './types'
 
@@ -237,8 +239,18 @@ function normaliseRestoredState(restored: WorldState): WorldState {
   const averageHydration = creatures.length
     ? creatures.reduce((total, creature) => total + creature.hydration, 0) / creatures.length
     : 0
+  const actionLog = cloned.actionLog ?? []
+  const landmarkKinds = new Set<WorldEvent['kind']>(['milestone', 'speciation', 'disaster', 'recovery', 'migration'])
+  const landmarks = cloned.landmarks ?? (cloned.events ?? [])
+    .filter((event) => landmarkKinds.has(event.kind) || (event.kind === 'death' && /vanished|extinct/i.test(event.title)))
+    .map((event) => ({
+      ...event,
+      tick: Math.max(0, Math.round((event.day - 1) / 0.006)),
+    }))
+    .reverse()
   return {
     ...cloned,
+    version: 2,
     creatures,
     deathRecords: cloned.deathRecords ?? [],
     genealogy: [...genealogyById.values()],
@@ -248,7 +260,10 @@ function normaliseRestoredState(restored: WorldState): WorldState {
     groups: cloned.groups ?? [],
     territories: cloned.territories ?? [],
     migrations: cloned.migrations ?? [],
+    actionLog,
+    landmarks,
     nextSpeciesId: cloned.nextSpeciesId ?? Math.max(3, ...species.map((record) => record.id + 1)),
+    nextActionId: cloned.nextActionId ?? Math.max(1, ...actionLog.map((record) => record.id + 1)),
     stats: {
       ...cloned.stats,
       kills: cloned.stats.kills ?? 0,
@@ -270,14 +285,14 @@ export class SimulationEngine {
   private undoStack: WorldState[] = []
 
   constructor(seed: string, restored?: WorldState) {
-    if (restored?.version === 1) {
+    if (restored && (Number(restored.version) === 1 || Number(restored.version) === 2)) {
       this.state = normaliseRestoredState(restored)
       this.random = new SeededRandom(restored.rngState)
     } else {
       const generated = generateTerrain(seed)
       this.random = new SeededRandom(seed)
       this.state = {
-        version: 1,
+        version: 2,
         seed,
         width: WORLD_WIDTH,
         height: WORLD_HEIGHT,
@@ -295,11 +310,14 @@ export class SimulationEngine {
         groups: [],
         territories: [],
         migrations: [],
+        actionLog: [],
+        landmarks: [],
         day: 1,
         tick: 0,
         rngState: this.random.state,
         nextEntityId: 1,
         nextSpeciesId: 3,
+        nextActionId: 1,
         stats: {
           grazers: 0,
           hunters: 0,
@@ -735,14 +753,22 @@ export class SimulationEngine {
   }
 
   private addEvent(kind: WorldEvent['kind'], title: string, detail: string): void {
-    this.state.events.unshift({
+    const event: WorldEvent = {
       id: this.nextId(),
       day: this.state.day,
       kind,
       title,
       detail,
-    })
+    }
+    this.state.events.unshift(event)
     this.state.events = this.state.events.slice(0, 20)
+    if (
+      ['milestone', 'speciation', 'disaster', 'recovery', 'migration'].includes(kind) ||
+      (kind === 'death' && /vanished|extinct/i.test(title))
+    ) {
+      this.state.landmarks.push({ ...event, tick: this.state.tick })
+      this.state.landmarks = this.state.landmarks.slice(-120)
+    }
   }
 
   private disasterAt(point: Point, type?: DisasterType): DisasterRecord | null {
@@ -1593,9 +1619,27 @@ export class SimulationEngine {
     this.updateSpecies()
   }
 
-  applyWorldAction(action: string, x: number, y: number, radius = 52): void {
-    this.undoStack.push(this.snapshot())
-    if (this.undoStack.length > 12) this.undoStack.shift()
+  applyWorldAction(
+    action: Exclude<CreationTool, 'inspect'>,
+    x: number,
+    y: number,
+    radius = 52,
+    record = true,
+  ): void {
+    if (record) {
+      this.undoStack.push(this.snapshot())
+      if (this.undoStack.length > 12) this.undoStack.shift()
+      this.state.actionLog.push({
+        id: this.state.nextActionId,
+        tick: this.state.tick,
+        day: this.state.day,
+        action,
+        x,
+        y,
+        radius,
+      })
+      this.state.nextActionId += 1
+    }
     if (DISASTER_TYPES.includes(action as DisasterType)) {
       this.triggerDisaster(action as DisasterType, x, y, 'player')
       this.updateStats()
@@ -1681,5 +1725,40 @@ export class SimulationEngine {
 
   snapshot(): WorldState {
     return structuredClone(this.state)
+  }
+
+  static replay(seed: string, actions: WorldActionRecord[], targetTick: number): SimulationEngine {
+    const engine = new SimulationEngine(seed)
+    const ordered = [...actions].sort((first, second) => first.tick - second.tick || first.id - second.id)
+    const boundedTarget = Math.max(0, Math.floor(targetTick))
+    let actionIndex = 0
+    const applyDueActions = () => {
+      while (actionIndex < ordered.length && ordered[actionIndex].tick <= engine.state.tick) {
+        const action = ordered[actionIndex]
+        if (action.tick <= boundedTarget) {
+          engine.applyWorldAction(action.action, action.x, action.y, action.radius, false)
+        }
+        actionIndex += 1
+      }
+    }
+    applyDueActions()
+    while (engine.state.tick < boundedTarget) {
+      engine.step(0.05)
+      applyDueActions()
+    }
+    engine.state.actionLog = structuredClone(ordered)
+    engine.state.nextActionId = Math.max(1, ...ordered.map((action) => action.id + 1))
+    return engine
+  }
+
+  stepReplay(delta: number, maxTick: number): boolean {
+    if (this.state.tick >= maxTick) return false
+    this.step(delta)
+    for (const action of this.state.actionLog) {
+      if (action.tick === this.state.tick) {
+        this.applyWorldAction(action.action, action.x, action.y, action.radius, false)
+      }
+    }
+    return this.state.tick < maxTick
   }
 }

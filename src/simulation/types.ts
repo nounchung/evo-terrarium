@@ -94,6 +94,25 @@ export interface WorldEvent {
   detail: string
 }
 
+export interface WorldActionRecord {
+  id: number
+  tick: number
+  day: number
+  action: Exclude<CreationTool, 'inspect'>
+  x: number
+  y: number
+  radius: number
+}
+
+export interface LandmarkRecord {
+  id: number
+  tick: number
+  day: number
+  kind: WorldEvent['kind']
+  title: string
+  detail: string
+}
+
 export interface LineageRecord {
   id: number
   kind: CreatureKind
@@ -206,7 +225,7 @@ export interface WorldStats {
 }
 
 export interface WorldState {
-  version: 1
+  version: 2
   seed: string
   width: number
   height: number
@@ -226,11 +245,14 @@ export interface WorldState {
   groups: GroupRecord[]
   territories: TerritoryRecord[]
   migrations: MigrationRecord[]
+  actionLog: WorldActionRecord[]
+  landmarks: LandmarkRecord[]
   day: number
   tick: number
   rngState: number
   nextEntityId: number
   nextSpeciesId: number
+  nextActionId: number
   stats: WorldStats
 }
 
@@ -248,6 +270,7 @@ export type WorkerCommand =
   | { type: 'init'; seed: string; restored?: WorldState }
   | { type: 'speed'; speed: SimSpeed }
   | { type: 'reset'; seed: string }
+  | { type: 'restore'; world: WorldState }
   | {
       type: 'world-action'
       action: Exclude<CreationTool, 'inspect'>
@@ -257,7 +280,15 @@ export type WorkerCommand =
     }
   | { type: 'snapshot' }
   | { type: 'undo' }
+  | { type: 'replay-seek'; tick: number }
+  | { type: 'replay-exit' }
+
+export interface ReplayStatus {
+  active: boolean
+  currentTick: number
+  maxTick: number
+}
 
 export type WorkerMessage =
-  | { type: 'ready'; world: WorldState; canUndo: boolean }
-  | { type: 'snapshot'; world: WorldState; speed: SimSpeed; canUndo: boolean }
+  | { type: 'ready'; world: WorldState; speed: SimSpeed; canUndo: boolean; replay: ReplayStatus }
+  | { type: 'snapshot'; world: WorldState; speed: SimSpeed; canUndo: boolean; replay: ReplayStatus }
