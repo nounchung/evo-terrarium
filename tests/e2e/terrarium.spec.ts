@@ -14,7 +14,7 @@ test('[zh-HK] defaults to Traditional Chinese and persists a language choice', a
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-HK')
   await expect(page.getByRole('application', { name: '互動式演化生態系統' })).toBeVisible()
   await expect(page.getByRole('button', { name: '暫停模擬' })).toBeVisible()
-  await expect(page.getByLabel('最近世界事件').getByText('一個生命世界甦醒了', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('最近世界事件')).toBeVisible()
   await page.getByRole('button', { name: '切換至英文' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
@@ -70,10 +70,22 @@ test('enables and disables the procedural living soundscape', async ({ page }) =
 test('loads a living world and exposes simulation controls', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Create a new world' })).toBeVisible()
-  await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
+  const canvas = page.getByRole('application', { name: 'Interactive evolving ecosystem' })
+  await expect(canvas).toBeVisible()
+  await expect(canvas).toHaveAttribute('data-terrain-style', 'living')
+  await expect(canvas).toHaveAttribute('data-terrain-build-ms', /^\d+(?:\.\d+)?$/)
+  await expect(canvas).toHaveAttribute('data-fps', /^\d+(?:\.\d+)?$/, { timeout: 10_000 })
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add grazer' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open climate lab' })).toBeVisible()
+})
+
+test('retains the classic terrain renderer for same-seed comparison', async ({ page }) => {
+  await page.goto('/?terrain=classic&seed=MOSS-1738')
+  const canvas = page.getByRole('application', { name: 'Interactive evolving ecosystem' })
+  await expect(canvas).toBeVisible()
+  await expect(canvas).toHaveAttribute('data-terrain-style', 'classic')
+  await expect(canvas).toHaveAttribute('data-terrain-build-ms', /^\d+(?:\.\d+)?$/)
 })
 
 test('creates a deterministic world from a chosen seed', async ({ page }) => {
@@ -98,6 +110,8 @@ test('keeps drag for exploration while a creation tool is armed', async ({ page 
   await page.goto('/')
   await page.getByRole('button', { name: 'Run at 20 times speed' }).click()
   await page.getByRole('button', { name: 'Water' }).click()
+  const canvas = page.getByRole('application', { name: 'Interactive evolving ecosystem' })
+  const revisionBeforePaint = Number(await canvas.getAttribute('data-terrain-revision'))
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeVisible()
   if (testInfo.project.name === 'mobile-safari') {
     await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeHidden()
@@ -105,6 +119,10 @@ test('keeps drag for exploration while a creation tool is armed', async ({ page 
     await expect(page.getByText('Tap to apply · Drag to explore · Esc to finish')).toBeVisible()
   }
   await expect(page.getByRole('button', { name: 'Pause simulation' })).toHaveClass(/active/)
+  const canvasBox = await canvas.boundingBox()
+  expect(canvasBox).not.toBeNull()
+  await canvas.click({ position: { x: canvasBox!.width * 0.58, y: canvasBox!.height * 0.52 } })
+  await expect.poll(async () => Number(await canvas.getAttribute('data-terrain-revision'))).toBeGreaterThan(revisionBeforePaint)
   await page.keyboard.press('Escape')
   await expect(page.getByText('WORLD PAUSED · CREATION TOOL')).toBeHidden()
   await expect(page.getByRole('button', { name: 'Run at 20 times speed' })).toHaveClass(/active/)

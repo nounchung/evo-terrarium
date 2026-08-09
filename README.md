@@ -62,11 +62,11 @@ npm run build
 
 The deterministic simulation engine contains no React or PixiJS code. A Web Worker advances it with a fixed timestep and sends serializable snapshots to the UI. React owns controls and overlays; PixiJS renders the living world; IndexedDB persists snapshots locally.
 
-See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md), [R2 Validation](docs/r2-validation.md), [R3 Validation](docs/r3-validation.md), [R4 Validation](docs/r4-validation.md), [R5 Validation](docs/r5-validation.md), [R6 Validation](docs/r6-validation.md) and [R7 Validation](docs/r7-validation.md).
+See [Simulation Design Spec](docs/simulation-design.md), [R0 Design Gate](docs/r0-design-gate.md), [R1 Validation](docs/r1-validation.md), [R2 Validation](docs/r2-validation.md), [R3 Validation](docs/r3-validation.md), [R4 Validation](docs/r4-validation.md), [R5 Validation](docs/r5-validation.md), [R6 Validation](docs/r6-validation.md), [R7 Validation](docs/r7-validation.md) and the [R9 Living Diorama Visual Specification](docs/r9-living-diorama-visual-spec.md).
 
 ## Roadmap
 
-R0 through R8 are complete. Each phase retains the capabilities from earlier phases; diagnostic views live in optional Lab surfaces rather than interrupting the core observation experience.
+R0 through R8 are complete. R9.1 Living Diorama terrain rendering is in technical spike and visual-validation status. Each phase retains the capabilities from earlier phases; diagnostic views live in optional Lab surfaces rather than interrupting the core observation experience.
 
 ## Cost and deployment
 
