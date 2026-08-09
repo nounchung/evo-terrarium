@@ -28,6 +28,7 @@ test('renders R9.2 species, life stages and behaviour evidence', async ({ page }
   await page.getByRole('button', { name: '暫停模擬' }).click()
 
   await expect(canvas).toHaveAttribute('data-creature-renderer', 'raster-sprites')
+  await expect(canvas).toHaveAttribute('data-creature-texture-source', 'atlas')
   await expect(canvas).toHaveAttribute('data-creature-qa', 'species')
   await expect(canvas).toHaveAttribute('data-creature-life-stages', 'adult,juvenile,older')
   await expect(canvas).toHaveAttribute(

@@ -1,10 +1,5 @@
-import { Assets, Container, Graphics, Sprite, type Texture } from 'pixi.js'
-import grazerAdultUrl from '../assets/creatures/grazer-adult.png'
-import grazerJuvenileUrl from '../assets/creatures/grazer-juvenile.png'
-import grazerOlderUrl from '../assets/creatures/grazer-older.png'
-import hunterAdultUrl from '../assets/creatures/hunter-adult.png'
-import hunterJuvenileUrl from '../assets/creatures/hunter-juvenile.png'
-import hunterOlderUrl from '../assets/creatures/hunter-older.png'
+import { Assets, Container, Graphics, Rectangle, Sprite, Texture } from 'pixi.js'
+import creatureAtlasUrl from '../assets/creatures/creature-atlas.png'
 import type { Creature, WorldState } from '../simulation/types'
 import type { CreatureTextures } from './canvasRuntime'
 import { geneRatio, hslToNumber } from './colour'
@@ -17,31 +12,35 @@ import {
   lifeStageScale,
 } from './creatureVisuals'
 
-const CREATURE_ASSET_URLS = {
-  grazer: {
-    juvenile: grazerJuvenileUrl,
-    adult: grazerAdultUrl,
-    older: grazerOlderUrl,
-  },
-  hunter: {
-    juvenile: hunterJuvenileUrl,
-    adult: hunterAdultUrl,
-    older: hunterOlderUrl,
-  },
-} as const
+const CREATURE_FRAME_SIZE = 256
+
+function atlasFrame(atlas: Texture, column: number, row: number): Texture {
+  return new Texture({
+    source: atlas.source,
+    frame: new Rectangle(
+      column * CREATURE_FRAME_SIZE,
+      row * CREATURE_FRAME_SIZE,
+      CREATURE_FRAME_SIZE,
+      CREATURE_FRAME_SIZE,
+    ),
+  })
+}
 
 export async function loadCreatureTextures(): Promise<CreatureTextures> {
-  // Keep WebKit's first GPU upload deterministic. Concurrent local PNG loads
-  // can briefly bind a neighbouring texture to the first Pixi composition.
-  const grazerJuvenile = await Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.juvenile)
-  const grazerAdult = await Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.adult)
-  const grazerOlder = await Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.older)
-  const hunterJuvenile = await Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.juvenile)
-  const hunterAdult = await Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.adult)
-  const hunterOlder = await Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.older)
+  // One GPU source avoids WebKit's headless multi-texture upload race while
+  // retaining the six original 256px raster frames without resampling.
+  const atlas = await Assets.load<Texture>(creatureAtlasUrl)
   return {
-    grazer: { juvenile: grazerJuvenile, adult: grazerAdult, older: grazerOlder },
-    hunter: { juvenile: hunterJuvenile, adult: hunterAdult, older: hunterOlder },
+    grazer: {
+      juvenile: atlasFrame(atlas, 0, 0),
+      adult: atlasFrame(atlas, 1, 0),
+      older: atlasFrame(atlas, 2, 0),
+    },
+    hunter: {
+      juvenile: atlasFrame(atlas, 0, 1),
+      adult: atlasFrame(atlas, 1, 1),
+      older: atlasFrame(atlas, 2, 1),
+    },
   }
 }
 
@@ -215,6 +214,7 @@ export function drawCreatures(
   const stages = [...new Set(creatures.map(lifeStageFor))].sort()
   const cues = RECOGNISABLE_BEHAVIOURS.filter((behaviour) => creatures.some((creature) => creature.behaviour === behaviour))
   canvas.dataset.creatureRenderer = 'raster-sprites'
+  canvas.dataset.creatureTextureSource = 'atlas'
   canvas.dataset.creatureCount = String(creatures.length)
   canvas.dataset.creatureDetail = detail
   canvas.dataset.creatureLifeStages = stages.join(',')
