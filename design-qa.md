@@ -46,13 +46,15 @@ Blocked. Shoreline, forest/meadow boundary and creature-over-terrain crops canno
 
 ## Primary interactions and console
 
-- Pan, zoom, pinch, terrain paint and selection: prepared for E2E regression, not browser-verified in this checkpoint.
+- GitHub Quality run #36 passed all 30 desktop Chromium and Mobile Safari-profile journeys, including renderer selection, metrics exposure and terrain repaint revision.
+- Pan, zoom, pinch and fitted-world composition still require hands-on visual verification.
 - Console errors: not inspected because the local preview could not be opened in the Work Mode browser.
 
 ## Comparison history
 
 - Iteration 1: implementation completed; automated lint, unit and production build passed.
-- Visual comparison did not begin because the required browser-rendered artifact could not be captured.
+- Iteration 2: GitHub Quality run #35 exposed two existing zh-HK timeouts under the heavier software renderer. Static terrain caching and lower decorative primitive density were implemented; run #36 then passed all 30 E2E journeys in 4.9 minutes instead of the failed run's 7.0 minutes.
+- Visual comparison did not begin because the required browser-rendered screenshot could not be captured.
 
 ## Implementation checklist
 
