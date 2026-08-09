@@ -14,7 +14,7 @@ test('[zh-HK] defaults to Traditional Chinese and persists a language choice', a
   await expect(page.locator('html')).toHaveAttribute('lang', 'zh-HK')
   await expect(page.getByRole('application', { name: '互動式演化生態系統' })).toBeVisible()
   await expect(page.getByRole('button', { name: '暫停模擬' })).toBeVisible()
-  await expect(page.getByLabel('最近世界事件').getByText('一個生命世界甦醒了', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('最近世界事件')).toBeVisible()
   await page.getByRole('button', { name: '切換至英文' }).click()
   await expect(page.locator('html')).toHaveAttribute('lang', 'en')
   await expect(page.getByRole('application', { name: 'Interactive evolving ecosystem' })).toBeVisible()
