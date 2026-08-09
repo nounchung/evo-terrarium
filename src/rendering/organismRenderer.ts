@@ -135,6 +135,7 @@ function createCreatureNode(
   reducedMotion: boolean,
   textures: CreatureTextures,
   detail: 'full' | 'reduced',
+  presentationScale: number,
 ): Container {
   const node = new Container()
   node.position.set(creature.x, creature.y)
@@ -147,7 +148,7 @@ function createCreatureNode(
   const sizeScale = Math.max(0.68, Math.min(1.45, creature.genes.size))
   const speedShape = geneRatio(creature.genes.speed, 24, 78)
   const visionShape = geneRatio(creature.genes.vision, 55, 240)
-  const baseWidth = creature.kind === 'grazer' ? 43 : 47
+  const baseWidth = (creature.kind === 'grazer' ? 43 : 47) * presentationScale
   const baseScale = (baseWidth / 256) * stageScale * sizeScale
 
   const shadow = new Graphics()
@@ -156,8 +157,8 @@ function createCreatureNode(
 
   const cues = new Graphics()
   if (detail === 'full') {
-    if (pose.showTrail) drawTrail(cues, creature, stageScale)
-    drawBehaviourCue(cues, creature, pose.cue, stageScale)
+    if (pose.showTrail) drawTrail(cues, creature, stageScale * presentationScale)
+    drawBehaviourCue(cues, creature, pose.cue, stageScale * presentationScale)
   }
   node.addChild(cues)
 
@@ -204,8 +205,17 @@ export function drawCreatures(
   const compactQa = qaScene && canvas.clientWidth < 700
   const creatures = creaturesForRendering(world, qaScene, compactQa)
   const detail = creatureDetailFor(world.creatures.length, zoom)
+  const presentationScale = qaScene ? 1.55 : 1
   for (const creature of creatures) {
-    container.addChild(createCreatureNode(creature, world.tick, selectedId, reducedMotion, textures, detail))
+    container.addChild(createCreatureNode(
+      creature,
+      world.tick,
+      selectedId,
+      reducedMotion,
+      textures,
+      detail,
+      presentationScale,
+    ))
   }
   container.sortChildren()
 
@@ -218,6 +228,7 @@ export function drawCreatures(
   canvas.dataset.creatureBehaviourCues = cues.join(',')
   canvas.dataset.creatureQa = qaScene ? 'species' : 'world'
   canvas.dataset.creatureQaLayout = compactQa ? 'compact' : 'desktop'
+  canvas.dataset.creatureQaScale = String(presentationScale)
   canvas.dataset.reducedMotion = reducedMotion ? 'true' : 'false'
   canvas.dataset.creatureBuildMs = (performance.now() - startedAt).toFixed(2)
 }

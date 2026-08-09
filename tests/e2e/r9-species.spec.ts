@@ -40,6 +40,7 @@ test('renders R9.2 species, life stages and behaviour evidence', async ({ page }
     'data-creature-qa-layout',
     testInfo.project.name === 'mobile-safari' ? 'compact' : 'desktop',
   )
+  await expect(canvas).toHaveAttribute('data-creature-qa-scale', '1.55')
   await expect(canvas).toHaveAttribute('data-creature-build-ms', /^\d+(?:\.\d+)?$/)
   expect(Number(await canvas.getAttribute('data-creature-build-ms'))).toBeLessThanOrEqual(100)
   await expect(canvas).toHaveAttribute('data-fps', /^\d+(?:\.\d+)?$/, { timeout: 10_000 })
