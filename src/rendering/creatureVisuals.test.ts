@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { behaviourPoseFor, creatureDetailFor, lifeStageFor, speciesQaRequested } from './creatureVisuals'
+import type { Creature, WorldState } from '../simulation/types'
+import {
+  behaviourPoseFor,
+  creatureDetailFor,
+  creaturesForRendering,
+  lifeStageFor,
+  speciesQaRequested,
+} from './creatureVisuals'
 
 describe('R9.2 creature visuals', () => {
   it('maps age ratios into stable life stages', () => {
@@ -29,5 +36,31 @@ describe('R9.2 creature visuals', () => {
   it('enables the renderer-only QA scene without changing the world', () => {
     expect(speciesQaRequested('?r9qa=species')).toBe(true)
     expect(speciesQaRequested('?seed=MOSS-1738')).toBe(false)
+  })
+
+  it('keeps all seven compact QA creatures inside the mobile safe playfield', () => {
+    const creature = (id: number, kind: Creature['kind']) => ({
+      id,
+      kind,
+      speciesId: 1,
+      species: kind,
+      x: 0,
+      y: 0,
+      angle: 0,
+      age: 5,
+      maxAge: 40,
+      behaviour: 'rest',
+      genes: { speed: 40, size: 1, vision: 100, hue: 0, metabolism: 1, fertility: 1 },
+      mutations: [],
+    }) as unknown as Creature
+    const world = {
+      creatures: [creature(1, 'grazer'), creature(2, 'hunter')],
+    } as WorldState
+
+    const compact = creaturesForRendering(world, true, true)
+
+    expect(compact).toHaveLength(7)
+    expect(Math.min(...compact.map(({ y }) => y))).toBeGreaterThanOrEqual(285)
+    expect(Math.max(...compact.map(({ y }) => y))).toBeLessThanOrEqual(645)
   })
 })

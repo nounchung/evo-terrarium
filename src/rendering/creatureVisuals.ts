@@ -107,13 +107,13 @@ export function creaturesForRendering(world: WorldState, qaScene: boolean, compa
   const bottom: Behaviour[] = ['hunt', 'flee', 'migrate']
   if (compact) {
     const slots = [
-      { x: 625, y: 210 },
-      { x: 815, y: 210 },
-      { x: 625, y: 390 },
-      { x: 815, y: 390 },
-      { x: 625, y: 570 },
-      { x: 815, y: 570 },
-      { x: 720, y: 735 },
+      { x: 625, y: 285 },
+      { x: 815, y: 285 },
+      { x: 625, y: 405 },
+      { x: 815, y: 405 },
+      { x: 625, y: 525 },
+      { x: 815, y: 525 },
+      { x: 720, y: 645 },
     ]
     return [
       ...top.map((behaviour, index) => qaCreature(
