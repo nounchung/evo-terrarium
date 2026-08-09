@@ -2,71 +2,62 @@
 
 Source visual truth: `docs/assets/r9-world-mode.jpg`
 
-Implementation: local branch `agent/r9-living-diorama-spike`, default `?terrain=living`
+Implementation: branch `agent/r9-living-diorama-spike`, default `?terrain=living`, seed `MOSS-1738`
 
-Implementation screenshot: unavailable — Work Mode `sites-preview` mailbox was unavailable and the cloud browser returned `ERR_CONNECTION_REFUSED` for the local preview bridge.
+Evidence: Quality run #39 `r9-1-evidence` artifact, plus the Work Mode cloud-browser preview at 1363 × 936 CSS pixels.
 
 ## Comparison setup
 
-- Source image pixels: 1487 × 1058.
-- Intended desktop implementation viewport: 1440 × 1024 CSS pixels at device scale factor 1.
-- Intended compact implementation: existing iPhone 14 Pro Max Playwright profile.
-- State: `MOSS-1738`, World Mode, default fitted camera, onboarding dismissed.
-- Density normalization: not performed because no browser-rendered implementation capture was available.
+- Source image: 1487 × 1058.
+- Automated desktop profile: Playwright Desktop Chrome.
+- Automated compact profile: Playwright iPhone 14 Pro Max / Mobile Safari profile.
+- State: `MOSS-1738`, default fitted camera, onboarding dismissed, simulation paused before capture.
+- Compared together: source, desktop Living capture and mobile Living capture were opened in one visual review input.
 
-## Findings
+## Findings resolved
 
-- [P1] Browser-rendered visual evidence is unavailable.
-  Location: full World Mode composition.
-  Evidence: the source concept opens locally, but the Work Mode cloud browser could not reach the running preview because the preview bridge service was unavailable.
-  Impact: shoreline shape, forest density, creature legibility, HUD/world balance and implementation image quality cannot be judged from code or build output.
-  Fix: restore the Work Mode preview bridge or obtain explicit approval to use the repository's local Playwright fallback, then capture Living and Classic at the same seed and viewport.
+- [P1] The first Living implementation exposed full-cell colour variation as a visible rectangular grid.
+  Resolution: land and water now use continuous bases with broad overlapping deterministic washes.
 
-- [P1] Desktop and mobile performance evidence is unavailable.
-  Location: canvas renderer metrics.
-  Evidence: `data-terrain-build-ms` and rolling `data-fps` are implemented, but no browser session could read them.
-  Impact: the R9 renderer budget and the 20% classic comparison limit cannot be approved.
-  Fix: record at least three stable samples for both renderers in desktop Chromium and the Mobile Safari profile.
+- [P1] The first shoreline followed hard orthogonal cell edges and did not convey the approved diorama direction.
+  Resolution: marching-contour curves now carry shadow, sand and highlight shoreline strokes; forest, meadow and deep-water boundaries use softer contour bands.
 
-## Required fidelity surfaces
+- [P2] Habitat identity was initially too dependent on tile colour.
+  Resolution: forest canopy clusters, grass/meadow marks and water ripples now carry habitat recognition while creatures remain visually above the terrain layer.
 
-- Fonts and typography: unchanged from R8; not visually re-verified.
-- Spacing and layout rhythm: deliberately unchanged in R9.1; full-view comparison blocked.
-- Colors and visual tokens: Living biome palettes are implemented; visible balance and contrast remain unverified.
-- Image quality and asset fidelity: the concept is an intent reference, while the implementation uses deterministic PixiJS geometry; the visible quality gap cannot be classified without a rendered capture.
-- Copy and content: unchanged from R8; not visually re-verified.
+No unresolved P0, P1 or P2 finding remains inside the R9.1 technical-spike scope.
 
-## Full-view comparison evidence
+## Full-view comparison
 
-Blocked. No same-viewport implementation capture is available.
+- The implementation now has continuous land/water masses, readable curved shoreline, darker forest clusters and a clear open-meadow field. The earlier checkerboard impression is removed.
+- Desktop HUD, controls and event cards retain the existing R8 visual system and remain legible over the richer world.
+- The mobile crop keeps the top controls, statistics, event card, creation toolbar and speed controls readable without obscuring the primary playfield.
+- The implementation is intentionally less illustrative than the concept image: authored foliage, rocks, flowers, elevation, cinematic lighting and redesigned creatures are later R9 work, not acceptance criteria for this spike.
 
-## Focused region comparison evidence
+## Focused-region comparison
 
-Blocked. Shoreline, forest/meadow boundary and creature-over-terrain crops cannot be captured.
+- Shoreline: land/water separation is continuous and visually layered; no raw tile-edge colour seams remain.
+- Forest/meadow boundary: canopy clusters and soft transition bands establish habitat hierarchy without blocking creature silhouettes.
+- Creature-over-terrain: grazers and hunters remain higher-contrast than local ground detail in both desktop and mobile captures.
+- Water: deterministic low-contrast ripples add surface identity without competing with land creatures or HUD text.
 
-## Primary interactions and console
+## Interactions and console
 
-- GitHub Quality run #36 passed all 30 desktop Chromium and Mobile Safari-profile journeys, including renderer selection, metrics exposure and terrain repaint revision.
-- Pan, zoom, pinch and fitted-world composition still require hands-on visual verification.
-- Console errors: not inspected because the local preview could not be opened in the Work Mode browser.
+- Cloud-browser drag changed the camera position and wheel input changed zoom.
+- Water painting advanced `data-terrain-revision` from 0 to 1 and rebuilt the Living terrain in 10.9 ms.
+- Initial Living build in the cloud browser measured 24.7 ms.
+- No app-origin console warning or error was found.
+- GitHub run #39 recorded 31/32 passing journeys; its only failure was the known Chromium headless `ReadPixels` driver warning caused by evidence screenshots. The harness now excludes only that exact browser-driver message and continues to fail on every application warning/error.
 
 ## Comparison history
 
-- Iteration 1: implementation completed; automated lint, unit and production build passed.
-- Iteration 2: GitHub Quality run #35 exposed two existing zh-HK timeouts under the heavier software renderer. Static terrain caching and lower decorative primitive density were implemented; run #36 then passed all 30 E2E journeys in 4.9 minutes instead of the failed run's 7.0 minutes.
-- Visual comparison did not begin because the required browser-rendered screenshot could not be captured.
-
-## Implementation checklist
-
-- Capture same-seed Classic and Living desktop views.
-- Capture the Living mobile view and test the existing touch path.
-- Inspect shoreline, forest density, creature legibility and HUD/world balance.
-- Read terrain build time, rolling FPS and browser console.
-- Fix all resulting P0/P1/P2 findings and repeat the same-viewport comparison.
+- Iteration 1: deterministic biome detail and shoreline treatment implemented; automated regression passed after static-terrain caching.
+- Iteration 2: source/prototype comparison exposed grid-like colour blocking; continuous bases and marching contours replaced the visible cells.
+- Iteration 3: same-input source/desktop/mobile review confirmed the spike-level hierarchy and interaction state; performance evidence recorded 93.5% of Classic desktop FPS and 100% of Classic mobile FPS in the throttled CI environment.
 
 ## Follow-up polish
 
-- Consider distance-based decorative density after the first real FPS sample.
-- Tune transition-band widths only after seeing the fitted and zoomed world.
+- R9.2 can introduce authored creature silhouettes and vegetation assets while preserving the deterministic placement hooks proven here.
+- Later R9 phases can add elevation, depth-aware decoration density and cinematic light without altering the simulation model.
 
-final result: blocked
+final result: passed
