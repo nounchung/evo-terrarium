@@ -200,60 +200,126 @@ function drawHabitatDetail(
   }
 }
 
-function drawTerrainTransition(
-  graphic: Graphics,
-  first: Biome,
-  second: Biome,
-  x: number,
-  y: number,
-  length: number,
-  orientation: 'vertical' | 'horizontal',
+interface ContourPoint {
+  x: number
+  y: number
+  hashX: number
+  hashY: number
+}
+
+type ContourEdge = 0 | 1 | 2 | 3
+
+const CONTOUR_CASES: Record<number, Array<[ContourEdge, ContourEdge]>> = {
+  0: [],
+  1: [[3, 0]],
+  2: [[0, 1]],
+  3: [[3, 1]],
+  4: [[1, 2]],
+  5: [[3, 0], [1, 2]],
+  6: [[0, 2]],
+  7: [[3, 2]],
+  8: [[2, 3]],
+  9: [[0, 2]],
+  10: [[0, 1], [2, 3]],
+  11: [[1, 2]],
+  12: [[1, 3]],
+  13: [[0, 1]],
+  14: [[3, 0]],
+  15: [],
+}
+
+function contourPoint(
+  edge: ContourEdge,
   column: number,
   row: number,
+  cellSize: number,
+  salt: number,
+): ContourPoint {
+  const halfCoordinates: Record<ContourEdge, [number, number]> = {
+    0: [column * 2 + 2, row * 2 + 1],
+    1: [column * 2 + 3, row * 2 + 2],
+    2: [column * 2 + 2, row * 2 + 3],
+    3: [column * 2 + 1, row * 2 + 2],
+  }
+  const [hashX, hashY] = halfCoordinates[edge]
+  const jitter = cellSize * 0.075
+  return {
+    x: hashX * cellSize * 0.5 + (visualHash(hashX, hashY, salt) - 0.5) * jitter,
+    y: hashY * cellSize * 0.5 + (visualHash(hashX, hashY, salt + 1) - 0.5) * jitter,
+    hashX,
+    hashY,
+  }
+}
+
+function drawContourSegment(
+  graphic: Graphics,
+  start: ContourPoint,
+  end: ContourPoint,
+  colour: number,
+  width: number,
+  alpha: number,
+  salt: number,
 ): void {
-  if (first === second) return
-  const waterEdge = isWaterBiome(first) !== isWaterBiome(second)
-  const phase = visualHash(column, row, orientation === 'vertical' ? 70 : 71)
-  const bend = (phase - 0.5) * 8
-  const path = (colour: number, width: number, alpha: number) => {
-    if (orientation === 'vertical') {
-      graphic
-        .moveTo(x, y)
-        .bezierCurveTo(x + bend, y + length * 0.28, x - bend, y + length * 0.72, x, y + length)
-        .stroke({ color: colour, width, alpha })
-    } else {
-      graphic
-        .moveTo(x, y)
-        .bezierCurveTo(x + length * 0.28, y + bend, x + length * 0.72, y - bend, x + length, y)
-        .stroke({ color: colour, width, alpha })
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const distance = Math.max(1, Math.hypot(dx, dy))
+  const bend = (visualHash(start.hashX + end.hashX, start.hashY + end.hashY, salt) - 0.5) * 9
+  const normalX = -dy / distance
+  const normalY = dx / distance
+  graphic
+    .moveTo(start.x, start.y)
+    .bezierCurveTo(
+      start.x + dx * 0.34 + normalX * bend,
+      start.y + dy * 0.34 + normalY * bend,
+      start.x + dx * 0.66 + normalX * bend,
+      start.y + dy * 0.66 + normalY * bend,
+      end.x,
+      end.y,
+    )
+    .stroke({ color: colour, width, alpha, cap: 'round', join: 'round' })
+}
+
+function drawTerrainContour(
+  graphic: Graphics,
+  world: WorldState,
+  matches: (biome: Biome) => boolean,
+  strokes: Array<{ colour: number; width: number; alpha: number }>,
+  salt: number,
+): void {
+  for (let row = 0; row < world.rows - 1; row += 1) {
+    for (let column = 0; column < world.columns - 1; column += 1) {
+      const topLeft = matches(world.terrain[row * world.columns + column])
+      const topRight = matches(world.terrain[row * world.columns + column + 1])
+      const bottomRight = matches(world.terrain[(row + 1) * world.columns + column + 1])
+      const bottomLeft = matches(world.terrain[(row + 1) * world.columns + column])
+      const contourCase = (topLeft ? 1 : 0) | (topRight ? 2 : 0) | (bottomRight ? 4 : 0) | (bottomLeft ? 8 : 0)
+      for (const [startEdge, endEdge] of CONTOUR_CASES[contourCase]) {
+        const start = contourPoint(startEdge, column, row, world.cellSize, salt)
+        const end = contourPoint(endEdge, column, row, world.cellSize, salt)
+        for (const stroke of strokes) {
+          drawContourSegment(graphic, start, end, stroke.colour, stroke.width, stroke.alpha, salt)
+        }
+      }
     }
   }
-
-  if (waterEdge) {
-    path(0x102f2d, 11, 0.34)
-    path(0xc8bd8d, 6.2, 0.72)
-    path(0xe2d9aa, 1.4, 0.72)
-    return
-  }
-
-  const transition = sharedTransitionColour(first, second)
-  path(transition, 9, 0.3)
 }
 
 function drawLivingTerrain(graphic: Graphics, world: WorldState): void {
   graphic.clear()
   graphic.rect(0, 0, world.width, world.height).fill(0x112f2b)
+
+  // Keep contiguous habitat regions visually continuous. Per-cell full-surface
+  // colour variation exposed the simulation grid even where the biome did not
+  // change; broad overlapping washes provide texture without reintroducing it.
   for (let row = 0; row < world.rows; row += 1) {
     for (let column = 0; column < world.columns; column += 1) {
       const index = row * world.columns + column
       const biome = world.terrain[index]
       const x = column * world.cellSize
       const y = row * world.cellSize
-      const visual = terrainCellVisual(biome, column, row)
       graphic
         .rect(x, y, world.cellSize + 1, world.cellSize + 1)
-        .fill(visual.colour)
-      drawHabitatDetail(graphic, biome, x, y, world.cellSize, column, row)
+        .fill(isWaterBiome(biome) ? 0x245b5b : 0x66844f)
     }
   }
 
@@ -262,16 +328,68 @@ function drawLivingTerrain(graphic: Graphics, world: WorldState): void {
       const biome = world.terrain[row * world.columns + column]
       const x = column * world.cellSize
       const y = row * world.cellSize
-      if (column + 1 < world.columns) {
-        const right = world.terrain[row * world.columns + column + 1]
-        drawTerrainTransition(graphic, biome, right, x + world.cellSize, y, world.cellSize, 'vertical', column, row)
-      }
-      if (row + 1 < world.rows) {
-        const below = world.terrain[(row + 1) * world.columns + column]
-        drawTerrainTransition(graphic, biome, below, x, y + world.cellSize, world.cellSize, 'horizontal', column, row)
-      }
+      const visual = terrainCellVisual(biome, column, row)
+      const washX = x + world.cellSize * (0.12 + visual.detailX * 0.76)
+      const washY = y + world.cellSize * (0.12 + visual.detailY * 0.76)
+      const washWidth = world.cellSize * (0.95 + visual.phase * 0.62)
+      const washHeight = world.cellSize * (0.7 + visualHash(column, row, 81) * 0.48)
+      const washColour = biome === 'forest' || biome === 'deep-water'
+        ? visual.shade
+        : visual.accent
+      const washAlpha = biome === 'forest'
+        ? 0.15
+        : biome === 'deep-water'
+          ? 0.13
+          : biome === 'meadow'
+            ? 0.11
+            : isWaterBiome(biome)
+              ? 0.065
+              : 0.075
+      graphic
+        .ellipse(washX, washY, washWidth, washHeight)
+        .fill({ color: washColour, alpha: washAlpha })
     }
   }
+
+  for (let row = 0; row < world.rows; row += 1) {
+    for (let column = 0; column < world.columns; column += 1) {
+      const biome = world.terrain[row * world.columns + column]
+      drawHabitatDetail(graphic, biome, column * world.cellSize, row * world.cellSize, world.cellSize, column, row)
+    }
+  }
+
+  drawTerrainContour(
+    graphic,
+    world,
+    isWaterBiome,
+    [
+      { colour: 0x102f2d, width: 9, alpha: 0.26 },
+      { colour: 0xbdb987, width: 4.2, alpha: 0.52 },
+      { colour: 0xe4ddb0, width: 0.9, alpha: 0.58 },
+    ],
+    90,
+  )
+  drawTerrainContour(
+    graphic,
+    world,
+    (biome) => biome === 'forest',
+    [{ colour: sharedTransitionColour('forest', 'grass'), width: 11, alpha: 0.2 }],
+    110,
+  )
+  drawTerrainContour(
+    graphic,
+    world,
+    (biome) => biome === 'meadow',
+    [{ colour: sharedTransitionColour('meadow', 'grass'), width: 8, alpha: 0.16 }],
+    130,
+  )
+  drawTerrainContour(
+    graphic,
+    world,
+    (biome) => biome === 'deep-water',
+    [{ colour: sharedTransitionColour('deep-water', 'water'), width: 7, alpha: 0.18 }],
+    150,
+  )
 
   graphic
     .rect(2, 2, world.width - 4, world.height - 4)
