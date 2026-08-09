@@ -5,6 +5,11 @@ const median = (values: number[]) => {
   return ordered[Math.floor(ordered.length / 2)]
 }
 
+const isHeadlessScreenshotDriverWarning = (message: string) =>
+  /^\[\.WebGL-[^\]]+\]GL Driver Message \(OpenGL, Performance, GL_CLOSE_PATH_NV, High\): GPU stall due to ReadPixels/.test(
+    message,
+  )
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('evo-terrarium:onboarding-v1', 'complete'))
 })
@@ -13,7 +18,10 @@ test('records the R9.1 Classic/Living render budget and visual evidence', async 
   test.setTimeout(60_000)
   const consoleFindings: string[] = []
   page.on('console', (message) => {
-    if (message.type() === 'error' || message.type() === 'warning') {
+    if (
+      (message.type() === 'error' || message.type() === 'warning') &&
+      !isHeadlessScreenshotDriverWarning(message.text())
+    ) {
       consoleFindings.push(`${message.type()}: ${message.text()}`)
     }
   })
