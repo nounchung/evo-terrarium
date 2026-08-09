@@ -44,6 +44,9 @@ test('renders R9.2 species, life stages and behaviour evidence', async ({ page }
   await expect(canvas).toHaveAttribute('data-creature-build-ms', /^\d+(?:\.\d+)?$/)
   expect(Number(await canvas.getAttribute('data-creature-build-ms'))).toBeLessThanOrEqual(100)
   await expect(canvas).toHaveAttribute('data-fps', /^\d+(?:\.\d+)?$/, { timeout: 10_000 })
+  // WebKit can capture the first uploaded sprite texture before Pixi's next
+  // composition frame. Let the settled frame become the visual artifact.
+  await page.waitForTimeout(600)
 
   const screenshotPath = testInfo.outputPath(`r9.2-${testInfo.project.name}-species.png`)
   await page.screenshot({ path: screenshotPath, fullPage: false })
