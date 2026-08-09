@@ -1,17 +1,18 @@
 import { useEffect, useRef } from 'react'
 import { Application, Container, Graphics } from 'pixi.js'
 import { useI18n } from '../i18n'
+import { drawAtmosphere } from '../rendering/atmosphereRenderer'
+import type { CanvasRuntime } from '../rendering/canvasRuntime'
 import {
-  CLASSIC_BIOME_COLOURS,
-  isWaterBiome,
-  sharedTransitionColour,
-  terrainCellVisual,
-  terrainStyleFromSearch,
-  visualHash,
-  type TerrainStyle,
-} from '../rendering/terrainVisuals'
-import type { Biome } from '../simulation/types'
-import type { CreationTool, Creature, DisasterType, WorldState } from '../simulation/types'
+  drawCreatures,
+  drawPlants,
+  loadCreatureTextures,
+} from '../rendering/organismRenderer'
+import { drawSocialLab } from '../rendering/socialRenderer'
+import { drawTerrain } from '../rendering/terrainRenderer'
+import { terrainStyleFromSearch } from '../rendering/terrainVisuals'
+import { speciesQaRequested } from '../rendering/creatureVisuals'
+import type { CreationTool, Creature, WorldState } from '../simulation/types'
 
 interface WorldCanvasProps {
   world: WorldState | null
@@ -21,20 +22,6 @@ interface WorldCanvasProps {
   onSelect: (id: number | null) => void
   onWorldAction: (action: Exclude<CreationTool, 'inspect'>, x: number, y: number) => void
   onOneShotComplete: () => void
-}
-
-interface CanvasRuntime {
-  app: Application
-  viewport: Container
-  terrain: Graphics
-  plants: Graphics
-  creatures: Graphics
-  atmosphere: Graphics
-  social: Graphics
-  brush: Graphics
-  terrainRevision: number
-  terrainStyle: TerrainStyle
-  reducedMotion: boolean
 }
 
 interface PointerPosition {
@@ -65,587 +52,6 @@ function drawBrushPreview(
   runtime.brush
     .circle(point.x, point.y, 3 / runtime.viewport.scale.x)
     .fill({ color: colour, alpha: 0.95 })
-}
-
-function hslToNumber(hue: number, saturation: number, lightness: number): number {
-  const s = saturation / 100
-  const l = lightness / 100
-  const chroma = (1 - Math.abs(2 * l - 1)) * s
-  const section = ((hue % 360) + 360) % 360 / 60
-  const x = chroma * (1 - Math.abs((section % 2) - 1))
-  let red = 0
-  let green = 0
-  let blue = 0
-  if (section < 1) [red, green] = [chroma, x]
-  else if (section < 2) [red, green] = [x, chroma]
-  else if (section < 3) [green, blue] = [chroma, x]
-  else if (section < 4) [green, blue] = [x, chroma]
-  else if (section < 5) [red, blue] = [x, chroma]
-  else [red, blue] = [chroma, x]
-  const match = l - chroma / 2
-  return (
-    (Math.round((red + match) * 255) << 16) |
-    (Math.round((green + match) * 255) << 8) |
-    Math.round((blue + match) * 255)
-  )
-}
-
-const geneRatio = (value: number, min: number, max: number) =>
-  Math.max(0, Math.min(1, (value - min) / (max - min)))
-
-function drawClassicTerrain(graphic: Graphics, world: WorldState): void {
-  graphic.clear()
-  graphic.rect(0, 0, world.width, world.height).fill(0x173d35)
-  for (let row = 0; row < world.rows; row += 1) {
-    for (let column = 0; column < world.columns; column += 1) {
-      const index = row * world.columns + column
-      const biome = world.terrain[index]
-      const x = column * world.cellSize
-      const y = row * world.cellSize
-      graphic
-        .rect(x, y, world.cellSize + 1, world.cellSize + 1)
-        .fill(CLASSIC_BIOME_COLOURS[biome] ?? 0x4a7248)
-
-      const pattern = ((index * 9301 + 49297) % 233280) / 233280
-      if (biome === 'forest') {
-        graphic
-          .circle(x + 8 + pattern * 23, y + 9 + ((index * 7) % 19), 7 + pattern * 5)
-          .fill({ color: 0x1c4436, alpha: 0.72 })
-        graphic
-          .circle(x + 28 - pattern * 8, y + 27, 5 + pattern * 4)
-          .fill({ color: 0x376144, alpha: 0.7 })
-      } else if (biome === 'meadow') {
-        graphic
-          .circle(x + 8 + pattern * 26, y + 8 + ((index * 13) % 27), 1.4)
-          .fill({ color: 0xb7c86b, alpha: 0.55 })
-      } else if (biome === 'water' || biome === 'deep-water') {
-        graphic
-          .moveTo(x + 6, y + 13 + pattern * 10)
-          .bezierCurveTo(x + 14, y + 9, x + 25, y + 18, x + 34, y + 13)
-          .stroke({ color: 0x8eb9a4, width: 1, alpha: biome === 'water' ? 0.25 : 0.13 })
-      }
-    }
-  }
-  graphic
-    .rect(2, 2, world.width - 4, world.height - 4)
-    .stroke({ color: 0xbad49b, width: 4, alpha: 0.1 })
-}
-
-function drawGrassTuft(
-  graphic: Graphics,
-  x: number,
-  y: number,
-  scale: number,
-  colour: number,
-  alpha: number,
-): void {
-  graphic
-    .moveTo(x, y + 3 * scale)
-    .bezierCurveTo(x - 1.5 * scale, y, x - 3.5 * scale, y - 2 * scale, x - 4.5 * scale, y - 5 * scale)
-    .moveTo(x, y + 3 * scale)
-    .bezierCurveTo(x + 0.5 * scale, y - 1 * scale, x + 2 * scale, y - 3 * scale, x + 3.5 * scale, y - 6 * scale)
-    .moveTo(x, y + 3 * scale)
-    .bezierCurveTo(x + 1.5 * scale, y + 0.5 * scale, x + 4 * scale, y - 0.5 * scale, x + 5 * scale, y - 3.5 * scale)
-    .stroke({ color: colour, width: Math.max(0.8, scale), alpha })
-}
-
-function drawHabitatDetail(
-  graphic: Graphics,
-  biome: Biome,
-  x: number,
-  y: number,
-  cellSize: number,
-  column: number,
-  row: number,
-): void {
-  const visual = terrainCellVisual(biome, column, row)
-  const focusX = x + cellSize * (0.22 + visual.detailX * 0.56)
-  const focusY = y + cellSize * (0.22 + visual.detailY * 0.56)
-
-  if (visual.phase > 0.28) {
-    graphic
-      .ellipse(focusX, focusY, cellSize * (0.32 + visual.phase * 0.1), cellSize * 0.24)
-      .fill({ color: visual.accent, alpha: isWaterBiome(biome) ? 0.06 : 0.09 })
-  }
-
-  if (biome === 'forest') {
-    const crownScale = 0.82 + visual.phase * 0.35
-    graphic.ellipse(focusX + 1.5, focusY + 5, 10 * crownScale, 6.5 * crownScale).fill({ color: 0x102f29, alpha: 0.34 })
-    graphic.circle(focusX - 4 * crownScale, focusY - 3, 7.2 * crownScale).fill({ color: visual.shade, alpha: 0.96 })
-    graphic.circle(focusX + 4.5 * crownScale, focusY - 3.5, 6.6 * crownScale).fill({ color: visual.colour, alpha: 0.98 })
-    graphic.circle(focusX, focusY - 8 * crownScale, 8.3 * crownScale).fill({ color: visual.accent, alpha: 0.88 })
-  } else if (biome === 'meadow' || biome === 'grass') {
-    const count = biome === 'meadow' ? 2 : 1
-    for (let detail = 0; detail < count; detail += 1) {
-      const tuftX = x + cellSize * (0.16 + visualHash(column, row, 20 + detail) * 0.68)
-      const tuftY = y + cellSize * (0.28 + visualHash(column, row, 30 + detail) * 0.58)
-      const scale = 0.62 + visualHash(column, row, 40 + detail) * 0.42
-      drawGrassTuft(graphic, tuftX, tuftY, scale, biome === 'meadow' ? 0xbed07b : 0x87a866, biome === 'meadow' ? 0.6 : 0.47)
-      if (biome === 'meadow' && visualHash(column, row, 50 + detail) > 0.64) {
-        graphic.circle(tuftX + 2.5, tuftY - 4.5, 1.15).fill({ color: detail % 2 === 0 ? 0xe2d58c : 0xd4a5a0, alpha: 0.78 })
-      }
-    }
-  } else {
-    if (visual.phase <= 0.25) return
-    const rippleY = y + cellSize * (0.28 + visual.detailY * 0.48)
-    const width = cellSize * (0.3 + visual.phase * 0.28)
-    const rippleAlpha = biome === 'water' ? 0.27 : 0.14
-    graphic
-      .moveTo(focusX - width / 2, rippleY)
-      .bezierCurveTo(focusX - width / 5, rippleY - 2, focusX + width / 5, rippleY + 2, focusX + width / 2, rippleY)
-      .stroke({ color: visual.accent, width: 1.1, alpha: rippleAlpha })
-    if (biome === 'water' && visual.phase > 0.56) {
-      graphic.circle(focusX + width * 0.18, rippleY - 5, 1.1).fill({ color: 0xb5d7c7, alpha: 0.34 })
-    }
-  }
-}
-
-interface ContourPoint {
-  x: number
-  y: number
-  hashX: number
-  hashY: number
-}
-
-type ContourEdge = 0 | 1 | 2 | 3
-
-const CONTOUR_CASES: Record<number, Array<[ContourEdge, ContourEdge]>> = {
-  0: [],
-  1: [[3, 0]],
-  2: [[0, 1]],
-  3: [[3, 1]],
-  4: [[1, 2]],
-  5: [[3, 0], [1, 2]],
-  6: [[0, 2]],
-  7: [[3, 2]],
-  8: [[2, 3]],
-  9: [[0, 2]],
-  10: [[0, 1], [2, 3]],
-  11: [[1, 2]],
-  12: [[1, 3]],
-  13: [[0, 1]],
-  14: [[3, 0]],
-  15: [],
-}
-
-function contourPoint(
-  edge: ContourEdge,
-  column: number,
-  row: number,
-  cellSize: number,
-  salt: number,
-): ContourPoint {
-  const halfCoordinates: Record<ContourEdge, [number, number]> = {
-    0: [column * 2 + 2, row * 2 + 1],
-    1: [column * 2 + 3, row * 2 + 2],
-    2: [column * 2 + 2, row * 2 + 3],
-    3: [column * 2 + 1, row * 2 + 2],
-  }
-  const [hashX, hashY] = halfCoordinates[edge]
-  const jitter = cellSize * 0.075
-  return {
-    x: hashX * cellSize * 0.5 + (visualHash(hashX, hashY, salt) - 0.5) * jitter,
-    y: hashY * cellSize * 0.5 + (visualHash(hashX, hashY, salt + 1) - 0.5) * jitter,
-    hashX,
-    hashY,
-  }
-}
-
-function drawContourSegment(
-  graphic: Graphics,
-  start: ContourPoint,
-  end: ContourPoint,
-  colour: number,
-  width: number,
-  alpha: number,
-  salt: number,
-): void {
-  const dx = end.x - start.x
-  const dy = end.y - start.y
-  const distance = Math.max(1, Math.hypot(dx, dy))
-  const bend = (visualHash(start.hashX + end.hashX, start.hashY + end.hashY, salt) - 0.5) * 9
-  const normalX = -dy / distance
-  const normalY = dx / distance
-  graphic
-    .moveTo(start.x, start.y)
-    .bezierCurveTo(
-      start.x + dx * 0.34 + normalX * bend,
-      start.y + dy * 0.34 + normalY * bend,
-      start.x + dx * 0.66 + normalX * bend,
-      start.y + dy * 0.66 + normalY * bend,
-      end.x,
-      end.y,
-    )
-    .stroke({ color: colour, width, alpha, cap: 'round', join: 'round' })
-}
-
-function drawTerrainContour(
-  graphic: Graphics,
-  world: WorldState,
-  matches: (biome: Biome) => boolean,
-  strokes: Array<{ colour: number; width: number; alpha: number }>,
-  salt: number,
-): void {
-  for (let row = 0; row < world.rows - 1; row += 1) {
-    for (let column = 0; column < world.columns - 1; column += 1) {
-      const topLeft = matches(world.terrain[row * world.columns + column])
-      const topRight = matches(world.terrain[row * world.columns + column + 1])
-      const bottomRight = matches(world.terrain[(row + 1) * world.columns + column + 1])
-      const bottomLeft = matches(world.terrain[(row + 1) * world.columns + column])
-      const contourCase = (topLeft ? 1 : 0) | (topRight ? 2 : 0) | (bottomRight ? 4 : 0) | (bottomLeft ? 8 : 0)
-      for (const [startEdge, endEdge] of CONTOUR_CASES[contourCase]) {
-        const start = contourPoint(startEdge, column, row, world.cellSize, salt)
-        const end = contourPoint(endEdge, column, row, world.cellSize, salt)
-        for (const stroke of strokes) {
-          drawContourSegment(graphic, start, end, stroke.colour, stroke.width, stroke.alpha, salt)
-        }
-      }
-    }
-  }
-}
-
-function drawLivingTerrain(graphic: Graphics, world: WorldState): void {
-  graphic.clear()
-  graphic.rect(0, 0, world.width, world.height).fill(0x112f2b)
-
-  // Keep contiguous habitat regions visually continuous. Per-cell full-surface
-  // colour variation exposed the simulation grid even where the biome did not
-  // change; broad overlapping washes provide texture without reintroducing it.
-  for (let row = 0; row < world.rows; row += 1) {
-    for (let column = 0; column < world.columns; column += 1) {
-      const index = row * world.columns + column
-      const biome = world.terrain[index]
-      const x = column * world.cellSize
-      const y = row * world.cellSize
-      graphic
-        .rect(x, y, world.cellSize + 1, world.cellSize + 1)
-        .fill(isWaterBiome(biome) ? 0x245b5b : 0x66844f)
-    }
-  }
-
-  for (let row = 0; row < world.rows; row += 1) {
-    for (let column = 0; column < world.columns; column += 1) {
-      const biome = world.terrain[row * world.columns + column]
-      const x = column * world.cellSize
-      const y = row * world.cellSize
-      const visual = terrainCellVisual(biome, column, row)
-      const washX = x + world.cellSize * (0.12 + visual.detailX * 0.76)
-      const washY = y + world.cellSize * (0.12 + visual.detailY * 0.76)
-      const washWidth = world.cellSize * (0.95 + visual.phase * 0.62)
-      const washHeight = world.cellSize * (0.7 + visualHash(column, row, 81) * 0.48)
-      const washColour = biome === 'forest' || biome === 'deep-water'
-        ? visual.shade
-        : visual.accent
-      const washAlpha = biome === 'forest'
-        ? 0.15
-        : biome === 'deep-water'
-          ? 0.13
-          : biome === 'meadow'
-            ? 0.11
-            : isWaterBiome(biome)
-              ? 0.065
-              : 0.075
-      graphic
-        .ellipse(washX, washY, washWidth, washHeight)
-        .fill({ color: washColour, alpha: washAlpha })
-    }
-  }
-
-  for (let row = 0; row < world.rows; row += 1) {
-    for (let column = 0; column < world.columns; column += 1) {
-      const biome = world.terrain[row * world.columns + column]
-      drawHabitatDetail(graphic, biome, column * world.cellSize, row * world.cellSize, world.cellSize, column, row)
-    }
-  }
-
-  drawTerrainContour(
-    graphic,
-    world,
-    isWaterBiome,
-    [
-      { colour: 0x102f2d, width: 9, alpha: 0.26 },
-      { colour: 0xbdb987, width: 4.2, alpha: 0.52 },
-      { colour: 0xe4ddb0, width: 0.9, alpha: 0.58 },
-    ],
-    90,
-  )
-  drawTerrainContour(
-    graphic,
-    world,
-    (biome) => biome === 'forest',
-    [{ colour: sharedTransitionColour('forest', 'grass'), width: 11, alpha: 0.2 }],
-    110,
-  )
-  drawTerrainContour(
-    graphic,
-    world,
-    (biome) => biome === 'meadow',
-    [{ colour: sharedTransitionColour('meadow', 'grass'), width: 8, alpha: 0.16 }],
-    130,
-  )
-  drawTerrainContour(
-    graphic,
-    world,
-    (biome) => biome === 'deep-water',
-    [{ colour: sharedTransitionColour('deep-water', 'water'), width: 7, alpha: 0.18 }],
-    150,
-  )
-
-  graphic
-    .rect(2, 2, world.width - 4, world.height - 4)
-    .stroke({ color: 0xd5df9b, width: 4, alpha: 0.14 })
-}
-
-function drawTerrain(runtime: CanvasRuntime, world: WorldState): void {
-  const startedAt = performance.now()
-  if (runtime.terrainStyle === 'classic') drawClassicTerrain(runtime.terrain, world)
-  else drawLivingTerrain(runtime.terrain, world)
-  if (runtime.terrain.isCachedAsTexture) runtime.terrain.updateCacheTexture()
-  else runtime.terrain.cacheAsTexture({ resolution: runtime.app.screen.width < 700 ? 0.9 : 1.2, antialias: true })
-  runtime.terrainRevision = world.terrainRevision
-  runtime.app.canvas.dataset.terrainCache = 'texture'
-  runtime.app.canvas.dataset.terrainRevision = String(world.terrainRevision)
-  runtime.app.canvas.dataset.terrainBuildMs = (performance.now() - startedAt).toFixed(2)
-}
-
-function drawPlants(graphic: Graphics, world: WorldState): void {
-  graphic.clear()
-  for (const plant of world.plants) {
-    if (plant.energy < 5) continue
-    const vitality = Math.max(0.25, plant.energy / plant.maxEnergy)
-    const radius = 2.2 + vitality * 2.9
-    const colour = hslToNumber(86 + plant.hue, 48, 45 + vitality * 8)
-    graphic
-      .moveTo(plant.x, plant.y + radius)
-      .lineTo(plant.x, plant.y - radius * 1.8)
-      .stroke({ color: 0x1e4a34, width: 1.2, alpha: 0.8 })
-    graphic.ellipse(plant.x - radius * 0.55, plant.y - radius * 0.7, radius, radius * 0.55).fill({ color: colour, alpha: 0.94 })
-    graphic.ellipse(plant.x + radius * 0.55, plant.y - radius * 1.15, radius * 0.85, radius * 0.5).fill({ color: colour, alpha: 0.88 })
-  }
-}
-
-function drawGrazer(graphic: Graphics, creature: Creature): void {
-  const scale = creature.genes.size
-  const speedShape = geneRatio(creature.genes.speed, 24, 78)
-  const visionShape = geneRatio(creature.genes.vision, 55, 240)
-  const body = hslToNumber(55 + creature.genes.hue, 70, 72)
-  const dark = hslToNumber(55 + creature.genes.hue, 42, 32)
-  const headX = creature.x + Math.cos(creature.angle) * 8 * scale
-  const headY = creature.y + Math.sin(creature.angle) * 8 * scale
-  const legLength = (3 + speedShape * 4) * scale
-  const sideX = Math.cos(creature.angle + Math.PI / 2)
-  const sideY = Math.sin(creature.angle + Math.PI / 2)
-  for (const offset of [-4, 4]) {
-    const legX = creature.x + Math.cos(creature.angle) * offset * scale
-    const legY = creature.y + Math.sin(creature.angle) * offset * scale
-    graphic
-      .moveTo(legX - sideX * 2.5 * scale, legY - sideY * 2.5 * scale)
-      .lineTo(legX - sideX * legLength, legY - sideY * legLength)
-      .stroke({ color: dark, width: 1.3 * scale, alpha: 0.78 })
-    graphic
-      .moveTo(legX + sideX * 2.5 * scale, legY + sideY * 2.5 * scale)
-      .lineTo(legX + sideX * legLength, legY + sideY * legLength)
-      .stroke({ color: dark, width: 1.3 * scale, alpha: 0.78 })
-  }
-  graphic.ellipse(creature.x, creature.y, 8.5 * scale, 5.5 * scale).fill({ color: body, alpha: 0.98 })
-  graphic.circle(headX, headY, 4.2 * scale).fill({ color: body, alpha: 1 })
-  const earLength = (2.4 + visionShape * 4.5) * scale
-  graphic
-    .moveTo(headX, headY)
-    .lineTo(headX + Math.cos(creature.angle + 1.75) * earLength, headY + Math.sin(creature.angle + 1.75) * earLength)
-    .stroke({ color: body, width: 2.1 * scale, alpha: 0.96 })
-  graphic
-    .moveTo(headX, headY)
-    .lineTo(headX + Math.cos(creature.angle - 1.75) * earLength, headY + Math.sin(creature.angle - 1.75) * earLength)
-    .stroke({ color: body, width: 2.1 * scale, alpha: 0.96 })
-  const markings = Math.max(1, Math.round(geneRatio(creature.genes.fertility, 0.45, 1.6) * 3))
-  for (let index = 0; index < markings; index += 1) {
-    const offset = (index - (markings - 1) / 2) * 3.1 * scale
-    graphic.circle(
-      creature.x + Math.cos(creature.angle) * offset,
-      creature.y + Math.sin(creature.angle) * offset,
-      0.85 * scale,
-    ).fill({ color: dark, alpha: 0.38 })
-  }
-  const eyeX = headX + Math.cos(creature.angle - 0.5) * 2.6 * scale
-  const eyeY = headY + Math.sin(creature.angle - 0.5) * 2.6 * scale
-  graphic.circle(eyeX, eyeY, 0.85 * scale).fill(dark)
-  const tailX = creature.x - Math.cos(creature.angle) * 8 * scale
-  const tailY = creature.y - Math.sin(creature.angle) * 8 * scale
-  graphic
-    .moveTo(tailX, tailY)
-    .lineTo(tailX - Math.cos(creature.angle - 0.8) * 5 * scale, tailY - Math.sin(creature.angle - 0.8) * 5 * scale)
-    .stroke({ color: dark, width: 1.5 * scale, alpha: 0.8 })
-}
-
-function drawHunter(graphic: Graphics, creature: Creature): void {
-  const scale = creature.genes.size
-  const speedShape = geneRatio(creature.genes.speed, 24, 78)
-  const visionShape = geneRatio(creature.genes.vision, 55, 240)
-  const colour = hslToNumber(12 + creature.genes.hue, 74, 62)
-  const noseX = creature.x + Math.cos(creature.angle) * 11 * scale
-  const noseY = creature.y + Math.sin(creature.angle) * 11 * scale
-  const leftX = creature.x + Math.cos(creature.angle + 2.35) * 8 * scale
-  const leftY = creature.y + Math.sin(creature.angle + 2.35) * 8 * scale
-  const rightX = creature.x + Math.cos(creature.angle - 2.35) * 8 * scale
-  const rightY = creature.y + Math.sin(creature.angle - 2.35) * 8 * scale
-  const tailLength = (7 + speedShape * 8) * scale
-  graphic
-    .moveTo(creature.x - Math.cos(creature.angle) * 5 * scale, creature.y - Math.sin(creature.angle) * 5 * scale)
-    .lineTo(creature.x - Math.cos(creature.angle - 0.35) * tailLength, creature.y - Math.sin(creature.angle - 0.35) * tailLength)
-    .stroke({ color: colour, width: 2.2 * scale, alpha: 0.78 })
-  graphic.poly([noseX, noseY, leftX, leftY, creature.x - Math.cos(creature.angle) * 5 * scale, creature.y - Math.sin(creature.angle) * 5 * scale, rightX, rightY]).fill({ color: colour, alpha: 0.96 })
-  const crestLength = (2 + visionShape * 4) * scale
-  graphic
-    .moveTo(creature.x, creature.y)
-    .lineTo(creature.x + Math.cos(creature.angle + 1.6) * crestLength, creature.y + Math.sin(creature.angle + 1.6) * crestLength)
-    .stroke({ color: 0x7d3227, width: 1.8 * scale, alpha: 0.85 })
-  const markings = Math.max(1, Math.round(geneRatio(creature.genes.fertility, 0.45, 1.6) * 3))
-  for (let index = 0; index < markings; index += 1) {
-    const offset = (index - (markings - 1) / 2) * 2.8 * scale
-    graphic.circle(
-      creature.x - Math.cos(creature.angle) * 1.5 * scale + Math.cos(creature.angle + Math.PI / 2) * offset,
-      creature.y - Math.sin(creature.angle) * 1.5 * scale + Math.sin(creature.angle + Math.PI / 2) * offset,
-      0.75 * scale,
-    ).fill({ color: 0x6f2d25, alpha: 0.55 })
-  }
-  graphic.circle(noseX, noseY, 1.4 * scale).fill(0x4b1f1a)
-  graphic.circle(creature.x + Math.cos(creature.angle - 0.5) * 4 * scale, creature.y + Math.sin(creature.angle - 0.5) * 4 * scale, 0.9 * scale).fill(0xffe7a4)
-}
-
-function drawCreatures(
-  graphic: Graphics,
-  world: WorldState,
-  selectedId: number | null,
-  reducedMotion: boolean,
-): void {
-  graphic.clear()
-  for (const creature of world.creatures) {
-    const active = !['rest', 'drink'].includes(creature.behaviour)
-    const bob = reducedMotion || !active
-      ? 0
-      : Math.sin(world.tick * 0.22 + creature.id * 1.83) * (creature.kind === 'hunter' ? 0.8 : 0.55)
-    const displayCreature = bob === 0 ? creature : { ...creature, y: creature.y + bob }
-    if (displayCreature.id === selectedId) {
-      graphic
-        .circle(displayCreature.x, displayCreature.y, 15 * displayCreature.genes.size)
-        .stroke({ color: 0xffe493, width: 2.2, alpha: 0.95 })
-      graphic
-        .circle(displayCreature.x, displayCreature.y, 19 * displayCreature.genes.size)
-        .stroke({ color: 0xffe493, width: 1, alpha: 0.25 })
-    }
-    if (displayCreature.kind === 'grazer') drawGrazer(graphic, displayCreature)
-    else drawHunter(graphic, displayCreature)
-    if (displayCreature.mutations.some((mutation) => mutation.significant)) {
-      const markerY = displayCreature.y - 16 * displayCreature.genes.size
-      graphic
-        .poly([
-          displayCreature.x, markerY - 3,
-          displayCreature.x + 3, markerY,
-          displayCreature.x, markerY + 3,
-          displayCreature.x - 3, markerY,
-        ])
-        .fill({ color: 0xf2d976, alpha: 0.94 })
-    }
-    if (displayCreature.behaviour === 'drink') {
-      const markerY = displayCreature.y - 13 * displayCreature.genes.size
-      graphic
-        .moveTo(displayCreature.x, markerY - 3.5)
-        .bezierCurveTo(
-          displayCreature.x - 4,
-          markerY + 1,
-          displayCreature.x - 2.5,
-          markerY + 4.5,
-          displayCreature.x,
-          markerY + 4.5,
-        )
-        .bezierCurveTo(
-          displayCreature.x + 2.5,
-          markerY + 4.5,
-          displayCreature.x + 4,
-          markerY + 1,
-          displayCreature.x,
-          markerY - 3.5,
-        )
-        .fill({ color: 0x91d4d0, alpha: 0.9 })
-    }
-  }
-}
-
-const DISASTER_COLOURS: Record<DisasterType, number> = {
-  drought: 0xd8b66b,
-  flood: 0x73b9c2,
-  disease: 0xbd86ca,
-  wildfire: 0xdc7258,
-}
-
-function drawAtmosphere(graphic: Graphics, world: WorldState, reducedMotion: boolean): void {
-  graphic.clear()
-  const seasonTint = {
-    'new-growth': 0x9dcf7d,
-    'high-sun': 0xe7bd70,
-    amberfall: 0xd48a59,
-    'long-rain': 0x70a9b3,
-  }[world.climate.season]
-  const seasonAlpha = world.climate.season === 'amberfall' ? 0.032 : 0.022
-  graphic.rect(0, 0, world.width, world.height).fill({ color: seasonTint, alpha: seasonAlpha })
-  if (world.climate.dayPhase === 'dawn' || world.climate.dayPhase === 'dusk') {
-    graphic.rect(0, 0, world.width, world.height).fill({ color: 0xd78158, alpha: world.climate.dayPhase === 'dusk' ? 0.055 : 0.038 })
-  }
-  const nightAlpha = Math.max(0, 0.28 - world.climate.daylight * 0.27)
-  graphic.rect(0, 0, world.width, world.height).fill({ color: 0x06131e, alpha: nightAlpha })
-  if (world.climate.temperature > 27) {
-    graphic.rect(0, 0, world.width, world.height).fill({ color: 0x7a2e19, alpha: Math.min(0.08, (world.climate.temperature - 27) * 0.012) })
-  }
-  if (world.climate.rainfall > 0.62) {
-    const rainAlpha = (world.climate.rainfall - 0.62) * 0.3
-    for (let index = 0; index < 44; index += 1) {
-      const x = (index * 193 + world.tick * 0.7) % world.width
-      const y = (index * 97 + world.tick * 1.6) % world.height
-      graphic.moveTo(x, y).lineTo(x - 5, y + 13).stroke({ color: 0xb4d8d1, width: 1.1, alpha: rainAlpha })
-    }
-  }
-  if (world.climate.dayPhase === 'night') {
-    for (let index = 0; index < 16; index += 1) {
-      const x = 35 + ((index * 317) % Math.max(80, world.width - 70))
-      const y = 40 + ((index * 173) % Math.max(80, world.height - 120))
-      const pulse = reducedMotion ? 0.42 : 0.27 + (Math.sin(world.tick * 0.12 + index * 1.7) + 1) * 0.16
-      graphic.circle(x, y, index % 3 === 0 ? 1.8 : 1.2).fill({ color: 0xdfe99b, alpha: pulse })
-    }
-  }
-  for (const record of world.disasters) {
-    if (world.day >= record.endsDay) continue
-    const colour = DISASTER_COLOURS[record.type]
-    const progress = (world.day - record.startedDay) / Math.max(0.1, record.endsDay - record.startedDay)
-    graphic.circle(record.x, record.y, record.radius).fill({ color: colour, alpha: 0.055 + record.intensity * 0.055 })
-    graphic.circle(record.x, record.y, record.radius).stroke({ color: colour, width: 3, alpha: 0.7 })
-    graphic.circle(record.x, record.y, record.radius * (0.38 + progress * 0.5)).stroke({ color: colour, width: 1.5, alpha: 0.32 })
-  }
-}
-
-function drawSocialLab(graphic: Graphics, world: WorldState): void {
-  graphic.clear()
-  for (const territory of world.territories) {
-    graphic.circle(territory.x, territory.y, territory.radius).stroke({ color: 0xe59b76, width: 2, alpha: 0.28 + territory.pressure * 0.34 })
-  }
-  const migratingIds = new Set(world.migrations.filter((record) => record.completedDay === null).map((record) => record.groupId))
-  const visibleGroups = [...world.groups]
-    .sort((first, second) => Number(migratingIds.has(second.id)) - Number(migratingIds.has(first.id)) || second.memberIds.length - first.memberIds.length)
-    .slice(0, 8)
-  for (const group of visibleGroups) {
-    const colour = group.kind === 'grazer' ? 0xd8e29a : 0xe98d70
-    const displayRadius = Math.max(18, Math.min(72, group.radius * 0.48))
-    graphic.circle(group.x, group.y, displayRadius).stroke({ color: colour, width: 1.7, alpha: 0.5 })
-    graphic.circle(group.x, group.y, 4).fill({ color: colour, alpha: 0.9 })
-  }
-  const visibleMigrations = world.migrations
-    .filter((migration) => migration.completedDay === null)
-    .slice(-8)
-  for (const migration of visibleMigrations) {
-    graphic.moveTo(migration.from.x, migration.from.y).lineTo(migration.to.x, migration.to.y).stroke({ color: 0x8cd1c8, width: 3, alpha: 0.72 })
-    graphic.circle(migration.to.x, migration.to.y, 11).stroke({ color: 0x8cd1c8, width: 2, alpha: 0.8 })
-    graphic.circle(migration.to.x, migration.to.y, 3).fill({ color: 0x8cd1c8, alpha: 0.9 })
-  }
 }
 
 function fitCamera(runtime: CanvasRuntime, world: WorldState): void {
@@ -710,6 +116,8 @@ export function WorldCanvas({
         return
       }
       const terrainStyle = terrainStyleFromSearch(window.location.search)
+      const creatureQaScene = speciesQaRequested(window.location.search)
+      const creatureTextures = await loadCreatureTextures()
       app.canvas.setAttribute('aria-label', localeRef.current ? '互動式演化生態系統' : 'Interactive evolving ecosystem')
       app.canvas.setAttribute('role', 'application')
       app.canvas.setAttribute('aria-describedby', 'world-accessibility-summary')
@@ -719,7 +127,7 @@ export function WorldCanvas({
       const viewport = new Container()
       const terrain = new Graphics()
       const plants = new Graphics()
-      const creatures = new Graphics()
+      const creatures = new Container()
       const atmosphere = new Graphics()
       const social = new Graphics()
       const brush = new Graphics()
@@ -734,6 +142,8 @@ export function WorldCanvas({
         atmosphere,
         social,
         brush,
+        creatureTextures,
+        creatureQaScene,
         terrainRevision: -1,
         terrainStyle,
         reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -913,7 +323,16 @@ export function WorldCanvas({
     }
     if (runtime.terrainRevision !== world.terrainRevision) drawTerrain(runtime, world)
     drawPlants(runtime.plants, world)
-    drawCreatures(runtime.creatures, world, selectedId, runtime.reducedMotion)
+    drawCreatures(
+      runtime.creatures,
+      world,
+      selectedId,
+      runtime.reducedMotion,
+      runtime.creatureTextures,
+      runtime.viewport.scale.x,
+      runtime.app.canvas,
+      runtime.creatureQaScene,
+    )
     drawAtmosphere(runtime.atmosphere, world, runtime.reducedMotion)
     if (labMode) drawSocialLab(runtime.social, world)
     else runtime.social.clear()
