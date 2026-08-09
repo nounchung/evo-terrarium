@@ -31,21 +31,14 @@ const CREATURE_ASSET_URLS = {
 } as const
 
 export async function loadCreatureTextures(): Promise<CreatureTextures> {
-  const [
-    grazerJuvenile,
-    grazerAdult,
-    grazerOlder,
-    hunterJuvenile,
-    hunterAdult,
-    hunterOlder,
-  ] = await Promise.all([
-    Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.juvenile),
-    Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.adult),
-    Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.older),
-    Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.juvenile),
-    Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.adult),
-    Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.older),
-  ])
+  // Keep WebKit's first GPU upload deterministic. Concurrent local PNG loads
+  // can briefly bind a neighbouring texture to the first Pixi composition.
+  const grazerJuvenile = await Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.juvenile)
+  const grazerAdult = await Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.adult)
+  const grazerOlder = await Assets.load<Texture>(CREATURE_ASSET_URLS.grazer.older)
+  const hunterJuvenile = await Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.juvenile)
+  const hunterAdult = await Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.adult)
+  const hunterOlder = await Assets.load<Texture>(CREATURE_ASSET_URLS.hunter.older)
   return {
     grazer: { juvenile: grazerJuvenile, adult: grazerAdult, older: grazerOlder },
     hunter: { juvenile: hunterJuvenile, adult: hunterAdult, older: hunterOlder },
