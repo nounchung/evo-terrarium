@@ -162,32 +162,31 @@ function drawHabitatDetail(
   const focusX = x + cellSize * (0.22 + visual.detailX * 0.56)
   const focusY = y + cellSize * (0.22 + visual.detailY * 0.56)
 
-  graphic
-    .ellipse(focusX, focusY, cellSize * (0.32 + visual.phase * 0.1), cellSize * 0.24)
-    .fill({ color: visual.accent, alpha: isWaterBiome(biome) ? 0.06 : 0.09 })
+  if (visual.phase > 0.28) {
+    graphic
+      .ellipse(focusX, focusY, cellSize * (0.32 + visual.phase * 0.1), cellSize * 0.24)
+      .fill({ color: visual.accent, alpha: isWaterBiome(biome) ? 0.06 : 0.09 })
+  }
 
   if (biome === 'forest') {
     const crownScale = 0.82 + visual.phase * 0.35
     graphic.ellipse(focusX + 1.5, focusY + 5, 10 * crownScale, 6.5 * crownScale).fill({ color: 0x102f29, alpha: 0.34 })
-    graphic.moveTo(focusX, focusY + 6).lineTo(focusX, focusY - 1).stroke({ color: 0x3f4930, width: 2.2, alpha: 0.72 })
     graphic.circle(focusX - 4 * crownScale, focusY - 3, 7.2 * crownScale).fill({ color: visual.shade, alpha: 0.96 })
     graphic.circle(focusX + 4.5 * crownScale, focusY - 3.5, 6.6 * crownScale).fill({ color: visual.colour, alpha: 0.98 })
     graphic.circle(focusX, focusY - 8 * crownScale, 8.3 * crownScale).fill({ color: visual.accent, alpha: 0.88 })
-    const secondX = x + cellSize * (0.18 + visualHash(column, row, 11) * 0.62)
-    const secondY = y + cellSize * (0.28 + visualHash(column, row, 12) * 0.52)
-    graphic.circle(secondX, secondY, 3 + visualHash(column, row, 13) * 2.4).fill({ color: visual.shade, alpha: 0.68 })
   } else if (biome === 'meadow' || biome === 'grass') {
-    const count = biome === 'meadow' ? 3 : 2
+    const count = biome === 'meadow' ? 2 : 1
     for (let detail = 0; detail < count; detail += 1) {
       const tuftX = x + cellSize * (0.16 + visualHash(column, row, 20 + detail) * 0.68)
       const tuftY = y + cellSize * (0.28 + visualHash(column, row, 30 + detail) * 0.58)
       const scale = 0.62 + visualHash(column, row, 40 + detail) * 0.42
       drawGrassTuft(graphic, tuftX, tuftY, scale, biome === 'meadow' ? 0xbed07b : 0x87a866, biome === 'meadow' ? 0.6 : 0.47)
-      if (biome === 'meadow' && visualHash(column, row, 50 + detail) > 0.5) {
+      if (biome === 'meadow' && visualHash(column, row, 50 + detail) > 0.64) {
         graphic.circle(tuftX + 2.5, tuftY - 4.5, 1.15).fill({ color: detail % 2 === 0 ? 0xe2d58c : 0xd4a5a0, alpha: 0.78 })
       }
     }
   } else {
+    if (visual.phase <= 0.25) return
     const rippleY = y + cellSize * (0.28 + visual.detailY * 0.48)
     const width = cellSize * (0.3 + visual.phase * 0.28)
     const rippleAlpha = biome === 'water' ? 0.27 : 0.14
@@ -239,7 +238,6 @@ function drawTerrainTransition(
 
   const transition = sharedTransitionColour(first, second)
   path(transition, 9, 0.3)
-  path(0xc0cd87, 1.1, 0.14)
 }
 
 function drawLivingTerrain(graphic: Graphics, world: WorldState): void {
@@ -284,7 +282,10 @@ function drawTerrain(runtime: CanvasRuntime, world: WorldState): void {
   const startedAt = performance.now()
   if (runtime.terrainStyle === 'classic') drawClassicTerrain(runtime.terrain, world)
   else drawLivingTerrain(runtime.terrain, world)
+  if (runtime.terrain.isCachedAsTexture) runtime.terrain.updateCacheTexture()
+  else runtime.terrain.cacheAsTexture({ resolution: runtime.app.screen.width < 700 ? 0.9 : 1.2, antialias: true })
   runtime.terrainRevision = world.terrainRevision
+  runtime.app.canvas.dataset.terrainCache = 'texture'
   runtime.app.canvas.dataset.terrainRevision = String(world.terrainRevision)
   runtime.app.canvas.dataset.terrainBuildMs = (performance.now() - startedAt).toFixed(2)
 }
@@ -760,6 +761,7 @@ export function WorldCanvas({
         canvas.removeEventListener('wheel', onWheel)
         canvas.removeEventListener('pointerleave', onPointerLeave)
         window.removeEventListener('resize', onResize)
+        terrain.cacheAsTexture(false)
         runtimeRef.current = null
         app.destroy(true, { children: true })
       }
